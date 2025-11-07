@@ -1,0 +1,13 @@
+{
+  "dashboard": {
+    "uid": "redis",
+    "title": "Redis Performance",
+    "panels": [
+      {"type": "graph", "title": "Memory Usage (MB)", "targets": [{"expr": "redis_memory_used_bytes / 1024 / 1024"}]},
+      {"type": "graph", "title": "Commands per Second", "targets": [{"expr": "rate(redis_commands_processed_total[1m])"}]},
+      {"type": "graph", "title": "Connections", "targets": [{"expr": "redis_connected_clients"}]}
+    ],
+    "schemaVersion": 30
+  },
+  "overwrite": true
+}

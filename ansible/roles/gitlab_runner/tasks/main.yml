@@ -1,0 +1,13 @@
+- name: Install GitLab Runner
+  shell: |
+    curl -L https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh | bash
+    apt install gitlab-runner -y
+
+- name: Register GitLab runner
+  shell: |
+    gitlab-runner register --non-interactive \
+      --url "http://{{ gitlab_ip }}" \
+      --registration-token "TOKEN" \
+      --executor "docker" \
+      --description "k3s-runner" \
+      --docker-image "docker:latest"

@@ -1,0 +1,72 @@
+- name: Create monitoring namespace
+  shell: kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+
+- name: Add Helm repo for Prometheus and Grafana
+  shell: |
+    helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+    helm repo add grafana https://grafana.github.io/helm-charts
+    helm repo update
+
+- name: Install Prometheus stack
+  shell: |
+    helm install prometheus prometheus-community/kube-prometheus-stack \
+      --namespace monitoring \
+      --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+      --set grafana.enabled=false
+
+- name: Install Grafana
+  shell: |
+    helm install grafana grafana/grafana \
+      --namespace monitoring \
+      --set adminUser=admin \
+      --set adminPassword=admin123 \
+      --set service.type=LoadBalancer \
+      --set service.loadBalancerIP=10.10.0.115 \
+      --set persistence.enabled=true \
+      --set persistence.size=5Gi
+
+- name: Copy Grafana dashboards
+  copy:
+    src: files/dashboards/
+    dest: /tmp/grafana_dashboards/
+
+- name: Import dashboards into Grafana
+  shell: |
+    for f in /tmp/grafana_dashboards/*.json; do
+      curl -X POST http://admin:admin123@10.10.0.115:3000/api/dashboards/db \
+        -H "Content-Type: application/json" \
+        -d @"$f";
+    done
+
+- name: Expose Grafana dashboard via Ingress
+  shell: |
+    kubectl apply -f - <<EOF
+    apiVersion: networking.k8s.io/v1
+    kind: Ingress
+    metadata:
+      name: grafana-ingress
+      namespace: monitoring
+      annotations:
+        kubernetes.io/ingress.class: nginx
+        cert-manager.io/cluster-issuer: letsencrypt-staging
+    spec:
+      tls:
+      - hosts:
+        - grafana.local
+        secretName: grafana-tls
+      rules:
+      - host: grafana.local
+        http:
+          paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: grafana
+                port:
+                  number: 80
+    EOF
+
+- name: Print Grafana credentials
+  debug:
+    msg: "Grafana URL: https://grafana.local | User: admin | Password: admin123"

@@ -1,0 +1,59 @@
+- name: Create namespace
+  shell: kubectl create ns odoo || true
+
+- name: Deploy PostgreSQL via Helm
+  shell: |
+    helm repo add bitnami https://charts.bitnami.com/bitnami
+    helm install postgres bitnami/postgresql --namespace odoo --set auth.postgresPassword=odoo123 --set primary.persistence.enabled=false
+
+- name: Deploy Redis for cache
+  shell: |
+    helm install redis bitnami/redis --namespace odoo --set architecture=standalone --set auth.enabled=false --set master.persistence.enabled=false
+
+- name: Deploy Odoo cluster
+  shell: |
+    kubectl apply -n odoo -f - <<EOF
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: odoo
+    spec:
+      replicas: 3
+      selector:
+        matchLabels:
+          app: odoo
+      template:
+        metadata:
+          labels:
+            app: odoo
+        spec:
+          containers:
+          - name: odoo
+            image: odoo:17
+            ports:
+              - containerPort: 8069
+            env:
+              - name: HOST
+                value: postgres-postgresql.odoo.svc.cluster.local
+              - name: USER
+                value: postgres
+              - name: PASSWORD
+                value: odoo123
+              - name: PORT
+                value: "5432"
+              - name: REDIS_URL
+                value: redis-master.odoo.svc.cluster.local
+    ---
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: odoo
+    spec:
+      selector:
+        app: odoo
+      ports:
+      - name: web
+        port: 8069
+        targetPort: 8069
+      type: LoadBalancer
+    EOF

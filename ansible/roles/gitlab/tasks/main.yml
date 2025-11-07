@@ -1,0 +1,15 @@
+- name: Install dependencies for GitLab
+  apt:
+    name:
+      - curl
+      - ca-certificates
+      - tzdata
+      - openssh-server
+      - postfix
+    state: present
+    update_cache: yes
+
+- name: Install GitLab via omnibus package
+  shell: |
+    curl https://packages.gitlab.com/install/repositories/gitlab/gitlab-ee/script.deb.sh | bash
+    EXTERNAL_URL="http://{{ gitlab_ip }}" apt install gitlab-ee -y

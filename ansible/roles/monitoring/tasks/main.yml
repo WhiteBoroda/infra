@@ -1,0 +1,19 @@
+- name: Install Docker
+  apt:
+    name: [apt-transport-https, ca-certificates, curl, software-properties-common]
+    state: present
+
+- name: Add Docker GPG key
+  shell: curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+
+- name: Install Docker engine
+  shell: |
+    add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+    apt update && apt install docker-ce -y
+
+- name: Run Grafana and Prometheus
+  shell: |
+    docker network create monitoring || true
+    docker run -d --name prometheus --network monitoring -p 9090:9090 prom/prometheus
+    docker run -d --name grafana --network monitoring -p 3000:3000 grafana/grafana
+    docker run -d --name alertmanager --network monitoring -p 9093:9093 prom/alertmanager

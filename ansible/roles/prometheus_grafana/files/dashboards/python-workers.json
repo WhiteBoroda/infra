@@ -1,0 +1,13 @@
+{
+  "dashboard": {
+    "uid": "python-workers",
+    "title": "Odoo Python Workers",
+    "panels": [
+      {"type": "graph", "title": "Worker CPU Usage (%)", "targets": [{"expr": "avg(rate(process_cpu_seconds_total[1m])) * 100"}]},
+      {"type": "graph", "title": "Memory (MB)", "targets": [{"expr": "process_resident_memory_bytes / 1024 / 1024"}]},
+      {"type": "graph", "title": "Thread Count", "targets": [{"expr": "process_threads"}]}
+    ],
+    "schemaVersion": 30
+  },
+  "overwrite": true
+}

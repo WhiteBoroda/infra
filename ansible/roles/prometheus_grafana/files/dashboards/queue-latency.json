@@ -1,0 +1,13 @@
+{
+  "dashboard": {
+    "uid": "queue-latency",
+    "title": "Odoo Queue Latency",
+    "panels": [
+      {"type": "graph", "title": "Queued Jobs", "targets": [{"expr": "odoo_queue_jobs_total"}]},
+      {"type": "graph", "title": "Job Latency (s)", "targets": [{"expr": "avg(odoo_queue_job_duration_seconds)"}]},
+      {"type": "graph", "title": "Job Failures", "targets": [{"expr": "rate(odoo_queue_failures_total[5m])"}]}
+    ],
+    "schemaVersion": 30
+  },
+  "overwrite": true
+}

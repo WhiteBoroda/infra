@@ -1,0 +1,13 @@
+{
+  "dashboard": {
+    "uid": "postgresql",
+    "title": "PostgreSQL Metrics",
+    "panels": [
+      {"type": "graph", "title": "Queries per Second", "targets": [{"expr": "rate(pg_stat_activity_count[1m])"}]},
+      {"type": "graph", "title": "Cache Hit Ratio", "targets": [{"expr": "pg_stat_database_blks_hit / (pg_stat_database_blks_hit + pg_stat_database_blks_read)"}]},
+      {"type": "graph", "title": "Connections", "targets": [{"expr": "pg_stat_activity_count"}]}
+    ],
+    "schemaVersion": 30
+  },
+  "overwrite": true
+}

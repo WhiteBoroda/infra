@@ -1,0 +1,15 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "odoo-perf",
+    "title": "Odoo Performance Overview",
+    "panels": [
+      {"type": "graph", "title": "RPC Response Time (ms)", "targets": [{"expr": "avg(rate(odoo_rpc_duration_seconds_sum[5m]) / rate(odoo_rpc_duration_seconds_count[5m]))"}]},
+      {"type": "graph", "title": "HTTP Requests per Second", "targets": [{"expr": "rate(odoo_http_requests_total[1m])"}]},
+      {"type": "graph", "title": "Database Query Latency", "targets": [{"expr": "avg(pg_stat_activity_duration_seconds)"}]}
+    ],
+    "schemaVersion": 30,
+    "version": 1
+  },
+  "overwrite": true
+}

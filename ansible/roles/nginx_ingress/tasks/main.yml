@@ -1,0 +1,86 @@
+- name: Install MetalLB for LoadBalancer support
+  shell: |
+    kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.5/config/manifests/metallb-native.yaml
+    kubectl wait --namespace metallb-system --for=condition=available --timeout=90s deployment controller
+
+- name: Configure MetalLB address pool
+  shell: |
+    kubectl apply -f - <<EOF
+    apiVersion: metallb.io/v1beta1
+    kind: IPAddressPool
+    metadata:
+      name: default-address-pool
+      namespace: metallb-system
+    spec:
+      addresses:
+      - 10.10.0.100-10.10.0.120
+    ---
+    apiVersion: metallb.io/v1beta1
+    kind: L2Advertisement
+    metadata:
+      name: default
+      namespace: metallb-system
+    EOF
+
+- name: Install NGINX Ingress Controller
+  shell: |
+    helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+    helm repo update
+    helm install nginx ingress-nginx/ingress-nginx \
+      --namespace ingress-nginx \
+      --create-namespace \
+      --set controller.replicaCount=2 \
+      --set controller.service.type=LoadBalancer \
+      --set controller.service.loadBalancerIP=10.10.0.110
+
+- name: Install cert-manager for HTTPS
+  shell: |
+    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.4/cert-manager.yaml
+    kubectl wait --namespace cert-manager --for=condition=available --timeout=90s deployment/cert-manager
+
+- name: Configure ClusterIssuer for Let's Encrypt (staging)
+  shell: |
+    kubectl apply -f - <<EOF
+    apiVersion: cert-manager.io/v1
+    kind: ClusterIssuer
+    metadata:
+      name: letsencrypt-staging
+    spec:
+      acme:
+        server: https://acme-staging-v02.api.letsencrypt.org/directory
+        email: admin@mycompany.com
+        privateKeySecretRef:
+          name: letsencrypt-staging
+        solvers:
+        - http01:
+            ingress:
+              class: nginx
+    EOF
+
+- name: Configure Ingress for Odoo
+  shell: |
+    kubectl apply -n odoo -f - <<EOF
+    apiVersion: networking.k8s.io/v1
+    kind: Ingress
+    metadata:
+      name: odoo-ingress
+      annotations:
+        kubernetes.io/ingress.class: nginx
+        cert-manager.io/cluster-issuer: letsencrypt-staging
+    spec:
+      tls:
+      - hosts:
+        - odoo.local
+        secretName: odoo-tls
+      rules:
+      - host: odoo.local
+        http:
+          paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: odoo
+                port:
+                  number: 8069
+    EOF

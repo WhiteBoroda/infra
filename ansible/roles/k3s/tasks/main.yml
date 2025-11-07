@@ -1,0 +1,15 @@
+- name: Install k3s on master
+  when: "'k3s_master' in group_names"
+  shell: |
+    curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --cluster-init" sh -
+
+- name: Copy k3s token to local
+  fetch:
+    src: /var/lib/rancher/k3s/server/node-token
+    dest: ./k3s_token
+    flat: yes
+
+- name: Install k3s on node
+  when: "'k3s_nodes' in group_names"
+  shell: |
+    curl -sfL https://get.k3s.io | K3S_URL=https://{{ k3s_node1_ip }}:6443 K3S_TOKEN=$(cat ./k3s_token) sh -
