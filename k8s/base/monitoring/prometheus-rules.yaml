@@ -1,0 +1,161 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: odoo-alerts
+  namespace: monitoring
+  labels:
+    prometheus: kube-prometheus
+spec:
+  groups:
+    - name: odoo.rules
+      interval: 30s
+      rules:
+        # High CPU Usage
+        - alert: OdooHighCPUUsage
+          expr: |
+            rate(container_cpu_usage_seconds_total{namespace=~"odoo-.*", pod=~"odoo-.*"}[5m]) > 0.8
+          for: 5m
+          labels:
+            severity: warning
+            component: odoo
+          annotations:
+            summary: "High CPU usage on Odoo pod {{ $labels.pod }}"
+            description: "Odoo pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is using {{ $value | humanizePercentage }} of CPU"
+
+        # High Memory Usage
+        - alert: OdooHighMemoryUsage
+          expr: |
+            container_memory_usage_bytes{namespace=~"odoo-.*", pod=~"odoo-.*"} /
+            container_spec_memory_limit_bytes{namespace=~"odoo-.*", pod=~"odoo-.*"} > 0.85
+          for: 5m
+          labels:
+            severity: warning
+            component: odoo
+          annotations:
+            summary: "High memory usage on Odoo pod {{ $labels.pod }}"
+            description: "Odoo pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is using {{ $value | humanizePercentage }} of memory"
+
+        # Pod Down
+        - alert: OdooPodDown
+          expr: |
+            kube_pod_status_phase{namespace=~"odoo-.*", pod=~"odoo-.*", phase!="Running"} == 1
+          for: 2m
+          labels:
+            severity: critical
+            component: odoo
+          annotations:
+            summary: "Odoo pod {{ $labels.pod }} is down"
+            description: "Odoo pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has been down for more than 2 minutes"
+
+        # High Response Time
+        - alert: OdooHighResponseTime
+          expr: |
+            histogram_quantile(0.95,
+              rate(http_request_duration_seconds_bucket{namespace=~"odoo-.*"}[5m])
+            ) > 2
+          for: 5m
+          labels:
+            severity: warning
+            component: odoo
+          annotations:
+            summary: "High response time on Odoo"
+            description: "95th percentile response time is {{ $value }}s for {{ $labels.namespace }}"
+
+        # High Error Rate
+        - alert: OdooHighErrorRate
+          expr: |
+            rate(http_requests_total{namespace=~"odoo-.*", status=~"5.."}[5m]) > 0.05
+          for: 5m
+          labels:
+            severity: critical
+            component: odoo
+          annotations:
+            summary: "High error rate on Odoo"
+            description: "Error rate is {{ $value | humanizePercentage }} for {{ $labels.namespace }}"
+
+        # Database Connection Issues
+        - alert: OdooDatabaseConnectionIssues
+          expr: |
+            postgresql_up{namespace=~"odoo-.*"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            component: database
+          annotations:
+            summary: "Odoo database is unreachable"
+            description: "PostgreSQL database in namespace {{ $labels.namespace }} is unreachable"
+
+        # Redis Down
+        - alert: OdooRedisDown
+          expr: |
+            redis_up{namespace=~"odoo-.*"} == 0
+          for: 2m
+          labels:
+            severity: warning
+            component: cache
+          annotations:
+            summary: "Odoo Redis cache is down"
+            description: "Redis in namespace {{ $labels.namespace }} is down"
+
+        # Persistent Volume Usage
+        - alert: OdooPVHighUsage
+          expr: |
+            kubelet_volume_stats_used_bytes{namespace=~"odoo-.*"} /
+            kubelet_volume_stats_capacity_bytes{namespace=~"odoo-.*"} > 0.85
+          for: 10m
+          labels:
+            severity: warning
+            component: storage
+          annotations:
+            summary: "High persistent volume usage for Odoo"
+            description: "PV {{ $labels.persistentvolumeclaim }} in namespace {{ $labels.namespace }} is {{ $value | humanizePercentage }} full"
+
+        # Pod Restart Rate
+        - alert: OdooPodRestartingTooOften
+          expr: |
+            rate(kube_pod_container_status_restarts_total{namespace=~"odoo-.*", pod=~"odoo-.*"}[15m]) > 0.05
+          for: 5m
+          labels:
+            severity: warning
+            component: odoo
+          annotations:
+            summary: "Odoo pod is restarting too often"
+            description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has restarted {{ $value }} times in the last 15 minutes"
+
+        # Deployment Replica Mismatch
+        - alert: OdooDeploymentReplicaMismatch
+          expr: |
+            kube_deployment_spec_replicas{namespace=~"odoo-.*"} !=
+            kube_deployment_status_replicas_available{namespace=~"odoo-.*"}
+          for: 10m
+          labels:
+            severity: warning
+            component: odoo
+          annotations:
+            summary: "Odoo deployment replica mismatch"
+            description: "Deployment {{ $labels.deployment }} in namespace {{ $labels.namespace }} has {{ $value }} mismatched replicas"
+
+        # HPA at Max Capacity
+        - alert: OdooHPAMaxCapacity
+          expr: |
+            kube_horizontalpodautoscaler_status_current_replicas{namespace=~"odoo-.*"} >=
+            kube_horizontalpodautoscaler_spec_max_replicas{namespace=~"odoo-.*"}
+          for: 15m
+          labels:
+            severity: warning
+            component: autoscaling
+          annotations:
+            summary: "Odoo HPA at maximum capacity"
+            description: "HPA {{ $labels.horizontalpodautoscaler }} in namespace {{ $labels.namespace }} has been at maximum capacity for 15 minutes"
+
+        # Certificate Expiring Soon
+        - alert: OdooCertificateExpiringSoon
+          expr: |
+            (certmanager_certificate_expiration_timestamp_seconds{namespace=~"odoo-.*"} - time()) / 86400 < 14
+          for: 1h
+          labels:
+            severity: warning
+            component: security
+          annotations:
+            summary: "Odoo TLS certificate expiring soon"
+            description: "Certificate {{ $labels.name }} in namespace {{ $labels.namespace }} expires in {{ $value }} days"

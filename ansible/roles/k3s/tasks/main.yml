@@ -1,15 +1,82 @@
 - name: Install k3s on master
   when: "'k3s_master' in group_names"
   shell: |
-    curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --cluster-init" sh -
+    curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server \
+      --cluster-init \
+      --write-kubeconfig-mode=644 \
+      --disable=traefik \
+      --kube-apiserver-arg=service-node-port-range=80-32767 \
+      --tls-san={{ k3s_master_ip }}" sh -
+  args:
+    creates: /usr/local/bin/k3s
+
+- name: Wait for k3s to be ready
+  when: "'k3s_master' in group_names"
+  wait_for:
+    port: 6443
+    delay: 10
+    timeout: 300
+
+- name: Create .kube directory
+  when: "'k3s_master' in group_names"
+  file:
+    path: /home/ubuntu/.kube
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: '0755'
+
+- name: Copy kubeconfig to user directory
+  when: "'k3s_master' in group_names"
+  copy:
+    src: /etc/rancher/k3s/k3s.yaml
+    dest: /home/ubuntu/.kube/config
+    remote_src: yes
+    owner: ubuntu
+    group: ubuntu
+    mode: '0600'
 
 - name: Copy k3s token to local
+  when: "'k3s_master' in group_names"
   fetch:
     src: /var/lib/rancher/k3s/server/node-token
-    dest: ./k3s_token
+    dest: /tmp/k3s_token
+    flat: yes
+
+- name: Copy kubeconfig to local
+  when: "'k3s_master' in group_names"
+  fetch:
+    src: /etc/rancher/k3s/k3s.yaml
+    dest: /tmp/k3s.yaml
     flat: yes
 
 - name: Install k3s on node
   when: "'k3s_nodes' in group_names"
   shell: |
-    curl -sfL https://get.k3s.io | K3S_URL=https://{{ k3s_node1_ip }}:6443 K3S_TOKEN=$(cat ./k3s_token) sh -
+    curl -sfL https://get.k3s.io | K3S_URL=https://{{ k3s_master_ip }}:6443 \
+      K3S_TOKEN={{ lookup('file', '/tmp/k3s_token') }} sh -
+  args:
+    creates: /usr/local/bin/k3s
+
+- name: Install kubectl bash completion
+  shell: |
+    kubectl completion bash | sudo tee /etc/bash_completion.d/kubectl > /dev/null
+  args:
+    creates: /etc/bash_completion.d/kubectl
+
+- name: Install Helm
+  when: "'k3s_master' in group_names"
+  shell: |
+    curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  args:
+    creates: /usr/local/bin/helm
+
+- name: Add Helm repos
+  when: "'k3s_master' in group_names"
+  shell: |
+    helm repo add stable https://charts.helm.sh/stable
+    helm repo add bitnami https://charts.bitnami.com/bitnami
+    helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+    helm repo add grafana https://grafana.github.io/helm-charts
+    helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+    helm repo update

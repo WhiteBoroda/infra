@@ -1,0 +1,13 @@
+apiVersion: v2
+name: odoo
+description: Odoo ERP Helm Chart with multi-module support
+type: application
+version: 1.0.0
+appVersion: "17.0"
+keywords:
+  - odoo
+  - erp
+  - crm
+maintainers:
+  - name: DevOps Team
+    email: devops@company.com

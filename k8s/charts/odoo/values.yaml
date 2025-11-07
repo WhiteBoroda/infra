@@ -1,0 +1,270 @@
+# Default values for Odoo Helm Chart
+
+# Environment: dev, stage, prod
+environment: prod
+
+replicaCount: 3
+
+image:
+  repository: odoo
+  pullPolicy: IfNotPresent
+  tag: "17.0"
+
+# Custom Odoo modules configuration
+customModules:
+  enabled: false
+  # Git repository with custom modules
+  repository: ""
+  branch: "main"
+  # Path in the repository
+  path: "addons"
+
+# Odoo configuration
+odoo:
+  # Database configuration
+  database:
+    host: postgres-postgresql.odoo.svc.cluster.local
+    port: 5432
+    user: odoo
+    password: "changeme"
+    name: odoo
+    maxconn: 64
+    # Filter databases to show
+    filter: ".*"
+
+  # Admin password (change in production!)
+  adminPassword: "admin"
+
+  # Workers configuration
+  workers: 4
+  maxCronThreads: 2
+
+  # Performance settings
+  limitMemoryHard: 2684354560  # 2.5GB
+  limitMemorySoft: 2147483648  # 2GB
+  limitTimeReal: 120
+  limitTimeCpu: 60
+
+  # Cache settings
+  cache:
+    enabled: true
+    redis:
+      host: redis-master.odoo.svc.cluster.local
+      port: 6379
+      dbindex: 1
+
+  # Log level: debug, info, warn, error, critical
+  logLevel: info
+
+  # Session settings
+  sessionStore: redis
+
+  # Additional Odoo options
+  extraArgs: []
+  # - "--load=web,your_custom_module"
+
+# Module-specific deployments (для запуска разных модулей на разных нодах)
+modules:
+  - name: web
+    enabled: true
+    replicas: 2
+    modules: "web,sale,purchase"
+    nodeSelector: {}
+    resources:
+      requests:
+        memory: "1Gi"
+        cpu: "500m"
+      limits:
+        memory: "2Gi"
+        cpu: "1000m"
+
+  - name: accounting
+    enabled: true
+    replicas: 1
+    modules: "account,account_accountant"
+    nodeSelector: {}
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "250m"
+      limits:
+        memory: "1Gi"
+        cpu: "500m"
+
+  - name: inventory
+    enabled: true
+    replicas: 1
+    modules: "stock,mrp"
+    nodeSelector: {}
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "250m"
+      limits:
+        memory: "1Gi"
+        cpu: "500m"
+
+# PostgreSQL dependency
+postgresql:
+  enabled: true
+  auth:
+    username: odoo
+    password: "changeme"
+    database: odoo
+  primary:
+    persistence:
+      enabled: true
+      size: 20Gi
+    resources:
+      requests:
+        memory: 512Mi
+        cpu: 250m
+      limits:
+        memory: 1Gi
+        cpu: 1000m
+
+# Redis dependency
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: false
+  master:
+    persistence:
+      enabled: false
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+      limits:
+        memory: 512Mi
+        cpu: 500m
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 8069
+  targetPort: 8069
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  hosts:
+    - host: odoo.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: odoo-tls
+      hosts:
+        - odoo.local
+
+# Persistence for Odoo filestore
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteMany
+  size: 10Gi
+  mountPath: /var/lib/odoo
+
+# Resource limits
+resources:
+  requests:
+    memory: 1Gi
+    cpu: 500m
+  limits:
+    memory: 2Gi
+    cpu: 2000m
+
+# Autoscaling
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity rules
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - odoo
+          topologyKey: kubernetes.io/hostname
+
+# Liveness and readiness probes
+livenessProbe:
+  httpGet:
+    path: /web/health
+    port: 8069
+  initialDelaySeconds: 600
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 6
+
+readinessProbe:
+  httpGet:
+    path: /web/health
+    port: 8069
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# ServiceMonitor for Prometheus
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+
+# Network Policy
+networkPolicy:
+  enabled: true
+  ingress:
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            name: ingress-nginx
+    - from:
+      - podSelector:
+          matchLabels:
+            app: odoo
+  egress:
+    - to:
+      - podSelector:
+          matchLabels:
+            app: postgres
+    - to:
+      - podSelector:
+          matchLabels:
+            app: redis
+
+# Init containers
+initContainers:
+  # Wait for database
+  - name: wait-for-db
+    image: busybox:latest
+    command: ['sh', '-c', 'until nc -z ${DB_HOST} ${DB_PORT}; do echo waiting for db; sleep 2; done;']
+    env:
+      - name: DB_HOST
+        value: postgres-postgresql.odoo.svc.cluster.local
+      - name: DB_PORT
+        value: "5432"

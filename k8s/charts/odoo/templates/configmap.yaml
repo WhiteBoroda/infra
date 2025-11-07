@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "odoo.fullname" . }}-config
+  labels:
+    {{- include "odoo.labels" . | nindent 4 }}
+data:
+  odoo.conf: |
+    [options]
+    admin_passwd = ${ODOO_ADMIN_PASSWORD}
+    db_host = ${HOST}
+    db_port = ${PORT}
+    db_user = ${USER}
+    db_password = ${PASSWORD}
+    db_maxconn = ${DB_MAXCONN}
+    dbfilter = {{ .Values.odoo.database.filter }}
+
+    workers = ${WORKERS}
+    max_cron_threads = ${MAX_CRON_THREADS}
+
+    limit_memory_hard = ${LIMIT_MEMORY_HARD}
+    limit_memory_soft = ${LIMIT_MEMORY_SOFT}
+    limit_time_cpu = ${LIMIT_TIME_CPU}
+    limit_time_real = ${LIMIT_TIME_REAL}
+
+    log_level = ${LOG_LEVEL}
+
+    {{- if .Values.odoo.cache.enabled }}
+    session_store = redis
+    session_redis_host = ${ODOO_SESSION_REDIS_HOST}
+    session_redis_port = ${ODOO_SESSION_REDIS_PORT}
+    session_redis_dbindex = {{ .Values.odoo.cache.redis.dbindex }}
+    {{- end }}
+
+    proxy_mode = True
+
+    {{- range .Values.odoo.extraArgs }}
+    {{ . }}
+    {{- end }}

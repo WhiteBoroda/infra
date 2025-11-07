@@ -1,0 +1,26 @@
+# Dockerfile for Odoo with custom modules
+FROM odoo:17.0
+
+USER root
+
+# Install additional dependencies
+RUN apt-get update && apt-get install -y \
+    python3-pip \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install additional Python packages
+COPY requirements.txt /tmp/
+RUN pip3 install -r /tmp/requirements.txt
+
+# Copy custom modules
+COPY custom_modules/ /mnt/extra-addons/
+
+# Set proper permissions
+RUN chown -R odoo:odoo /mnt/extra-addons
+
+USER odoo
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5m --retries=3 \
+  CMD curl -f http://localhost:8069/web/health || exit 1

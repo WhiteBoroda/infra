@@ -1,0 +1,9 @@
+# Additional Python requirements for custom Odoo modules
+pytest==7.4.3
+pytest-odoo==0.9.0
+coverage==7.3.2
+black==23.11.0
+flake8==6.1.0
+pylint==3.0.2
+requests==2.31.0
+redis==5.0.1

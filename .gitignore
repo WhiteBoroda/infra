@@ -55,3 +55,44 @@ venv/ # Virtual environment directory
 .idea/
 *~
 .#*
+
+# Kubernetes
+*.kubeconfig
+kubeconfig
+.kube/
+/tmp/k3s*
+
+# Logs
+*.log
+logs/
+
+# Secrets
+secrets/
+*.key
+*.pem
+*.crt
+*.cert
+*.p12
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+
+# Helm
+charts/*.tgz
+
+# k6 results
+k6-report.*
+
+# Locust results
+locust_report.*
+
+# GitLab CI cache
+.gitlab-ci-cache/
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
