@@ -52,6 +52,11 @@ resource "proxmox_vm_qemu" "k3s_master" {
     bridge = "vmbr0"
   }
 
+  # VGA console instead of serial
+  vga {
+    type = "std"
+  }
+
   ciuser     = "ubuntu"
   cipassword = "Z_Xcvbn-12"
   sshkeys    = file(var.ssh_pubkey_path)
@@ -62,6 +67,9 @@ resource "proxmox_vm_qemu" "k3s_master" {
 
   onboot     = true
   agent      = 1
+
+  # Wait for cloud-init to finish
+  define_connection_info = false
 
   lifecycle {
     ignore_changes = [
@@ -107,6 +115,11 @@ resource "proxmox_vm_qemu" "k3s_node1" {
     bridge = "vmbr0"
   }
 
+  # VGA console instead of serial
+  vga {
+    type = "std"
+  }
+
   ciuser     = "ubuntu"
   cipassword = "Z_Xcvbn-12"
   sshkeys    = file(var.ssh_pubkey_path)
@@ -117,6 +130,9 @@ resource "proxmox_vm_qemu" "k3s_node1" {
 
   onboot     = true
   agent      = 1
+
+  # Wait for cloud-init to finish
+  define_connection_info = false
 
   lifecycle {
     ignore_changes = [
@@ -164,6 +180,11 @@ resource "proxmox_vm_qemu" "gitlab" {
     bridge = "vmbr0"
   }
 
+  # VGA console instead of serial
+  vga {
+    type = "std"
+  }
+
   ciuser     = "ubuntu"
   cipassword = "Z_Xcvbn-12"
   sshkeys    = file(var.ssh_pubkey_path)
@@ -174,6 +195,9 @@ resource "proxmox_vm_qemu" "gitlab" {
 
   onboot     = true
   agent      = 1
+
+  # Wait for cloud-init to finish
+  define_connection_info = false
 
   lifecycle {
     ignore_changes = [
@@ -220,6 +244,11 @@ resource "proxmox_vm_qemu" "monitoring" {
     bridge = "vmbr0"
   }
 
+  # VGA console instead of serial
+  vga {
+    type = "std"
+  }
+
   ciuser     = "ubuntu"
   cipassword = "Z_Xcvbn-12"
   sshkeys    = file(var.ssh_pubkey_path)
@@ -230,6 +259,9 @@ resource "proxmox_vm_qemu" "monitoring" {
 
   onboot     = true
   agent      = 1
+
+  # Wait for cloud-init to finish
+  define_connection_info = false
 
   lifecycle {
     ignore_changes = [
@@ -304,6 +336,11 @@ resource "proxmox_vm_qemu" "postgres" {
     bridge = "vmbr0"
   }
 
+  # VGA console instead of serial
+  vga {
+    type = "std"
+  }
+
   ciuser     = "ubuntu"
   cipassword = "Z_Xcvbn-12"
   sshkeys    = file(var.ssh_pubkey_path)
@@ -314,6 +351,9 @@ resource "proxmox_vm_qemu" "postgres" {
 
   onboot     = true
   agent      = 1
+
+  # Wait for cloud-init to finish
+  define_connection_info = false
 
   lifecycle {
     ignore_changes = [
