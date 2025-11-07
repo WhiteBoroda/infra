@@ -21,7 +21,7 @@
       --set adminUser=admin \
       --set adminPassword=admin123 \
       --set service.type=LoadBalancer \
-      --set service.loadBalancerIP=10.10.0.115 \
+      --set service.loadBalancerIP=192.168.0.101 \
       --set persistence.enabled=true \
       --set persistence.size=5Gi
 
@@ -33,7 +33,7 @@
 - name: Import dashboards into Grafana
   shell: |
     for f in /tmp/grafana_dashboards/*.json; do
-      curl -X POST http://admin:admin123@10.10.0.115:3000/api/dashboards/db \
+      curl -X POST http://admin:admin123@192.168.0.101:3000/api/dashboards/db \
         -H "Content-Type: application/json" \
         -d @"$f";
     done
