@@ -1,0 +1,151 @@
+# Production environment values
+environment: prod
+
+replicaCount: 3
+
+image:
+  pullPolicy: IfNotPresent
+  tag: "17.0"
+
+odoo:
+  database:
+    password: "CHANGE_ME_PRODUCTION_PASSWORD"
+    name: odoo_prod
+    maxconn: 128
+  adminPassword: "CHANGE_ME_PRODUCTION_ADMIN"
+  workers: 8
+  maxCronThreads: 4
+  logLevel: warn
+
+  limitMemoryHard: 4294967296  # 4GB
+  limitMemorySoft: 3221225472  # 3GB
+  limitTimeReal: 300
+  limitTimeCpu: 120
+
+modules:
+  - name: web
+    enabled: true
+    replicas: 3
+    modules: "web,sale,purchase,crm,website"
+    nodeSelector: {}
+    resources:
+      requests:
+        memory: "2Gi"
+        cpu: "1000m"
+      limits:
+        memory: "3Gi"
+        cpu: "2000m"
+
+  - name: accounting
+    enabled: true
+    replicas: 2
+    modules: "account,account_accountant,account_asset"
+    nodeSelector: {}
+    resources:
+      requests:
+        memory: "1Gi"
+        cpu: "500m"
+      limits:
+        memory: "2Gi"
+        cpu: "1000m"
+
+  - name: inventory
+    enabled: true
+    replicas: 2
+    modules: "stock,mrp,purchase_stock"
+    nodeSelector: {}
+    resources:
+      requests:
+        memory: "1Gi"
+        cpu: "500m"
+      limits:
+        memory: "2Gi"
+        cpu: "1000m"
+
+postgresql:
+  enabled: true
+  auth:
+    password: "CHANGE_ME_PRODUCTION_PASSWORD"
+  primary:
+    persistence:
+      enabled: true
+      size: 100Gi
+      storageClass: "fast-ssd"
+    resources:
+      requests:
+        memory: 2Gi
+        cpu: 1000m
+      limits:
+        memory: 4Gi
+        cpu: 2000m
+
+redis:
+  enabled: true
+  master:
+    persistence:
+      enabled: true
+      size: 5Gi
+    resources:
+      requests:
+        memory: 512Mi
+        cpu: 250m
+      limits:
+        memory: 1Gi
+        cpu: 1000m
+
+persistence:
+  enabled: true
+  size: 50Gi
+  storageClass: "fast-ssd"
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+ingress:
+  enabled: true
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/rate-limit: "200"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+  hosts:
+    - host: odoo.yourdomain.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: odoo-prod-tls
+      hosts:
+        - odoo.yourdomain.com
+
+serviceMonitor:
+  enabled: true
+  interval: 30s
+
+networkPolicy:
+  enabled: true
+
+# Production-specific affinity rules
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+                - odoo
+        topologyKey: kubernetes.io/hostname
+  nodeAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        preference:
+          matchExpressions:
+            - key: node.kubernetes.io/instance-type
+              operator: In
+              values:
+                - high-memory

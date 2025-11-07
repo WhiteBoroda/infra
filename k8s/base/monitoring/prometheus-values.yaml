@@ -1,0 +1,202 @@
+# Prometheus Stack Values
+fullnameOverride: prometheus
+
+alertmanager:
+  enabled: true
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: ['alertname', 'cluster', 'service']
+      group_wait: 10s
+      group_interval: 10s
+      repeat_interval: 12h
+      receiver: 'slack-notifications'
+      routes:
+        - match:
+            severity: critical
+          receiver: 'slack-critical'
+          continue: true
+        - match:
+            severity: warning
+          receiver: 'slack-warnings'
+
+    receivers:
+      - name: 'slack-notifications'
+        slack_configs:
+          - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+            channel: '#monitoring'
+            title: 'Odoo Cluster Alert'
+            text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+
+      - name: 'slack-critical'
+        slack_configs:
+          - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+            channel: '#critical-alerts'
+            title: 'CRITICAL: Odoo Cluster'
+            text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+
+      - name: 'slack-warnings'
+        slack_configs:
+          - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+            channel: '#warnings'
+            title: 'Warning: Odoo Cluster'
+            text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - alertmanager.local
+    tls:
+      - secretName: alertmanager-tls
+        hosts:
+          - alertmanager.local
+
+prometheus:
+  enabled: true
+  prometheusSpec:
+    retention: 30d
+    retentionSize: "50GB"
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 50Gi
+
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+
+    resources:
+      requests:
+        memory: 2Gi
+        cpu: 1000m
+      limits:
+        memory: 4Gi
+        cpu: 2000m
+
+    additionalScrapeConfigs:
+      - job_name: 'odoo-metrics'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - odoo-dev
+                - odoo-stage
+                - odoo-prod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: odoo
+          - source_labels: [__meta_kubernetes_pod_ip]
+            action: replace
+            target_label: __address__
+            replacement: '${1}:8069'
+
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - prometheus.local
+    tls:
+      - secretName: prometheus-tls
+        hosts:
+          - prometheus.local
+
+grafana:
+  enabled: true
+  adminPassword: "change_me_in_production"
+
+  persistence:
+    enabled: true
+    size: 10Gi
+
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          url: http://prometheus-kube-prometheus-prometheus:9090
+          isDefault: true
+          editable: false
+
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: 'default'
+          orgId: 1
+          folder: ''
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/default
+
+  dashboardsConfigMaps:
+    default: "grafana-dashboards"
+
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - grafana.local
+    tls:
+      - secretName: grafana-tls
+        hosts:
+          - grafana.local
+
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 250m
+    limits:
+      memory: 1Gi
+      cpu: 1000m
+
+prometheusOperator:
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+
+kubeStateMetrics:
+  enabled: true
+
+nodeExporter:
+  enabled: true
+
+# Default rules
+defaultRules:
+  create: true
+  rules:
+    alertmanager: true
+    etcd: false
+    configReloaders: true
+    general: true
+    k8s: true
+    kubeApiserver: true
+    kubeApiserverAvailability: true
+    kubeApiserverSlos: true
+    kubelet: true
+    kubeProxy: false
+    kubePrometheusGeneral: true
+    kubePrometheusNodeRecording: true
+    kubernetesApps: true
+    kubernetesResources: true
+    kubernetesStorage: true
+    kubernetesSystem: true
+    kubeScheduler: false
+    kubeStateMetrics: true
+    network: true
+    node: true
+    nodeExporterAlerting: true
+    nodeExporterRecording: true
+    prometheus: true
+    prometheusOperator: true

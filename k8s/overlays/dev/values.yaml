@@ -1,0 +1,72 @@
+# Development environment values
+environment: dev
+
+replicaCount: 1
+
+image:
+  pullPolicy: Always
+  tag: "17.0"
+
+odoo:
+  database:
+    password: "dev123"
+    name: odoo_dev
+  adminPassword: "admin"
+  workers: 2
+  logLevel: debug
+
+modules:
+  - name: web
+    enabled: true
+    replicas: 1
+    modules: "web,sale,purchase"
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "250m"
+      limits:
+        memory: "1Gi"
+        cpu: "500m"
+
+  - name: accounting
+    enabled: false
+
+  - name: inventory
+    enabled: false
+
+postgresql:
+  enabled: true
+  auth:
+    password: "dev123"
+  primary:
+    persistence:
+      enabled: false
+
+redis:
+  enabled: true
+
+persistence:
+  enabled: false
+
+autoscaling:
+  enabled: false
+
+ingress:
+  enabled: true
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+  hosts:
+    - host: odoo-dev.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: odoo-dev-tls
+      hosts:
+        - odoo-dev.local
+
+serviceMonitor:
+  enabled: false
+
+networkPolicy:
+  enabled: false
