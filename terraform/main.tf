@@ -68,6 +68,9 @@ resource "proxmox_vm_qemu" "k3s_master" {
   onboot     = true
   agent      = 1
 
+  # Increase timeout for cloud-init
+  agent_timeout = "5m"
+
   # Wait for cloud-init to finish
   define_connection_info = false
 
@@ -130,6 +133,9 @@ resource "proxmox_vm_qemu" "k3s_node1" {
 
   onboot     = true
   agent      = 1
+
+  # Increase timeout for cloud-init
+  agent_timeout = "5m"
 
   # Wait for cloud-init to finish
   define_connection_info = false
@@ -196,6 +202,9 @@ resource "proxmox_vm_qemu" "gitlab" {
   onboot     = true
   agent      = 1
 
+  # Increase timeout for cloud-init
+  agent_timeout = "5m"
+
   # Wait for cloud-init to finish
   define_connection_info = false
 
@@ -259,6 +268,9 @@ resource "proxmox_vm_qemu" "monitoring" {
 
   onboot     = true
   agent      = 1
+
+  # Increase timeout for cloud-init
+  agent_timeout = "5m"
 
   # Wait for cloud-init to finish
   define_connection_info = false
@@ -351,6 +363,9 @@ resource "proxmox_vm_qemu" "postgres" {
 
   onboot     = true
   agent      = 1
+
+  # Increase timeout for cloud-init
+  agent_timeout = "5m"
 
   # Wait for cloud-init to finish
   define_connection_info = false
