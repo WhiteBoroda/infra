@@ -44,6 +44,13 @@ resource "proxmox_vm_qemu" "k3s_master" {
         }
       }
     }
+    ide {
+      ide1 {
+        cloudinit {
+            storage = var.storage
+        }
+      }
+    }
   }
 
   network {
@@ -54,41 +61,30 @@ resource "proxmox_vm_qemu" "k3s_master" {
 
   
 # Cloud-Init configuration
-#  cicustom   = "vendor=local:snippets/qemu-guest-agent.yml" # /var/lib/vz/snippets/qemu-guest-agent.yml
   ciupgrade  = true
-  nameserver = "192.168.0.1"
-  ipconfig0  = "ip=192.168.0.20/24,gw=192.168.0.1,ip6=dhcp"
+  ipconfig0  = "ip=192.168.0.20/24,gw=192.168.0.1"
   skip_ipv6  = true
-  ciuser     = "root"
-  cipassword = "Enter123!"
+  ciuser     = var.ci_username
+  cipassword = var.ci_password
+  nameserver = var.ci_nameserver
   sshkeys    = file(var.ssh_pubkey_path)
-
-#  cicustom   = "vendor=local:snippets/qemu-guest-agent.yml"
-#  ciuser     = "ubuntu"
-#  cipassword = "Z_Xcvbn-12"
-#  sshkeys    = file(var.ssh_pubkey_path)
-#  ipconfig0  = "ip=192.168.0.20/24,gw=192.168.0.1"
-#  bootdisk   = "scsi0"
-#  boot       = "cdn"
-
-  agent = 1
-}
+  bootdisk   = "scsi0"
+  boot       = "cdn"
+  agent      = 1
+  }
 resource "proxmox_vm_qemu" "k3s_node1" {
   name         = "k3s-node1"
   target_node  = var.target_node
   clone        = var.template_name
   full_clone   = true
-
   cpu {
     cores   = 4
     sockets = 1
     type    = "host"
   }
-
   memory  = 8192
   scsihw  = "virtio-scsi-single"
   os_type = "cloud-init"
-
   disks {
     scsi {
       scsi0 {
@@ -103,23 +99,27 @@ resource "proxmox_vm_qemu" "k3s_node1" {
         }
       }
     }
+    ide {
+      ide1 {
+        cloudinit {
+            storage = var.storage
+        }
+      }
+    }
   }
-
   network {
     id     = 0
     model  = "virtio"
     bridge = "vmbr0"
   }
-
-#  cicustom   = "vendor=local:snippets/qemu-guest-agent.yml"
-  ciuser     = "ubuntu"
-  cipassword = "Z_Xcvbn-12"
+  ciuser     = var.ci_username
+  cipassword = var.ci_password
+  nameserver = var.ci_nameserver
   sshkeys    = file(var.ssh_pubkey_path)
   ipconfig0  = "ip=192.168.0.21/24,gw=192.168.0.1"
   bootdisk   = "scsi0"
   boot       = "cdn"
-
-  agent = 1
+  agent      = 1
 }
 
 
@@ -153,23 +153,27 @@ resource "proxmox_vm_qemu" "gitlab" {
         }
       }
     }
+    ide {
+      ide1 {
+        cloudinit {
+            storage = var.storage
+        }
+      }
+    }
   }
-
   network {
     id     = 0
     model  = "virtio"
     bridge = "vmbr0"
-  }
-
-#  cicustom   = "vendor=local:snippets/qemu-guest-agent.yml"
-  ciuser     = "ubuntu"
-  cipassword = "Z_Xcvbn-12"
+    }
+  ciuser     = var.ci_username
+  cipassword = var.ci_password
+  nameserver = var.ci_nameserver
   sshkeys    = file(var.ssh_pubkey_path)
   ipconfig0  = "ip=192.168.0.22/24,gw=192.168.0.1"
   bootdisk   = "scsi0"
   boot       = "cdn"
-
-  agent = 1
+  agent      = 1
 }
 
 resource "proxmox_vm_qemu" "monitoring" {
@@ -202,29 +206,33 @@ resource "proxmox_vm_qemu" "monitoring" {
         }
       }
     }
+    ide {
+      ide1 {
+        cloudinit {
+            storage = var.storage
+        }
+      }
   }
-
+  }
   network {
     id     = 0
     model  = "virtio"
     bridge = "vmbr0"
   }
-
-#  cicustom   = "vendor=local:snippets/qemu-guest-agent.yml"
-  ciuser     = "ubuntu"
-  cipassword = "Z_Xcvbn-12"
+  ciuser     = var.ci_username
+  cipassword = var.ci_password
+  nameserver = var.ci_nameserver
   sshkeys    = file(var.ssh_pubkey_path)
   ipconfig0  = "ip=192.168.0.23/24,gw=192.168.0.1"
   bootdisk   = "scsi0"
   boot       = "cdn"
-
-  agent = 1
+  agent      = 1
 }
 resource "proxmox_lxc" "redis" {
   hostname     = "redis-lxc"
   target_node  = var.target_node
   ostemplate   = "local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst"
-  password     = "Z_Xcvbn-12"
+  password     = var.ci_password
   cores        = 2
   memory       = 1024
   swap         = 512
@@ -244,7 +252,7 @@ resource "proxmox_lxc" "redis" {
     name   = "eth0"
     bridge = "vmbr0"
     ip     = "192.168.0.24/24"
-    gw     = "192.168.0.1"
+    gw     = var.ci_gateway
   }
 }
 
@@ -278,21 +286,26 @@ resource "proxmox_vm_qemu" "postgres" {
         }
       }
     }
+    ide {
+      ide1 {
+        cloudinit {
+            storage = var.storage
+        }
+      }
+   }
   }
-
   network {
     id     = 0
     model  = "virtio"
     bridge = "vmbr0"
   }
 
-#  cicustom   = "vendor=local:snippets/qemu-guest-agent.yml"
-  ciuser     = "ubuntu"
-  cipassword = "Z_Xcvbn-12"
+  ciuser     = var.ci_username
+  cipassword = var.ci_password
+  nameserver = var.ci_nameserver
   sshkeys    = file(var.ssh_pubkey_path)
   ipconfig0  = "ip=192.168.0.25/24,gw=192.168.0.1"
   bootdisk   = "scsi0"
   boot       = "cdn"
-
-  agent = 1
+  agent      = 1
 }

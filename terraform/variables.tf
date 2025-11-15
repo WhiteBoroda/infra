@@ -38,3 +38,23 @@ variable "ssh_pubkey_path" {
   type        = string
   default     = "keys/id_rsa.pub"
 }
+variable "ci_username" {
+  description = "Cloud-init username"
+  type        = string
+  default     = "ubuntu"
+}
+variable "ci_password" {
+  description = "Cloud-init user password"
+  type        = string
+  default     = "ubuntu"
+}   
+variable "ci_nameserver" {
+  description = "Cloud-init nameserver"
+  type        = string
+  default     = "8.8.8.8"
+} 
+variable "ci_gateway" {
+  description = "Cloud-init gateway"
+  type        = string
+  default     = "192.168.0.1"
+}
