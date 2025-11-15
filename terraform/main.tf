@@ -52,12 +52,24 @@ resource "proxmox_vm_qemu" "k3s_master" {
     bridge = "vmbr0"
   }
 
-  ciuser     = "ubuntu"
-  cipassword = "Z_Xcvbn-12"
+  
+# Cloud-Init configuration
+#  cicustom   = "vendor=local:snippets/qemu-guest-agent.yml" # /var/lib/vz/snippets/qemu-guest-agent.yml
+  ciupgrade  = true
+  nameserver = "192.168.0.1"
+  ipconfig0  = "ip=192.168.0.20/24,gw=192.168.0.1,ip6=dhcp"
+  skip_ipv6  = true
+  ciuser     = "root"
+  cipassword = "Enter123!"
   sshkeys    = file(var.ssh_pubkey_path)
-  ipconfig0  = "ip=192.168.0.20/24,gw=192.168.0.1"
-  bootdisk   = "scsi0"
-  boot       = "cdn"
+
+#  cicustom   = "vendor=local:snippets/qemu-guest-agent.yml"
+#  ciuser     = "ubuntu"
+#  cipassword = "Z_Xcvbn-12"
+#  sshkeys    = file(var.ssh_pubkey_path)
+#  ipconfig0  = "ip=192.168.0.20/24,gw=192.168.0.1"
+#  bootdisk   = "scsi0"
+#  boot       = "cdn"
 
   agent = 1
 }
@@ -99,6 +111,7 @@ resource "proxmox_vm_qemu" "k3s_node1" {
     bridge = "vmbr0"
   }
 
+#  cicustom   = "vendor=local:snippets/qemu-guest-agent.yml"
   ciuser     = "ubuntu"
   cipassword = "Z_Xcvbn-12"
   sshkeys    = file(var.ssh_pubkey_path)
@@ -148,6 +161,7 @@ resource "proxmox_vm_qemu" "gitlab" {
     bridge = "vmbr0"
   }
 
+#  cicustom   = "vendor=local:snippets/qemu-guest-agent.yml"
   ciuser     = "ubuntu"
   cipassword = "Z_Xcvbn-12"
   sshkeys    = file(var.ssh_pubkey_path)
@@ -196,6 +210,7 @@ resource "proxmox_vm_qemu" "monitoring" {
     bridge = "vmbr0"
   }
 
+#  cicustom   = "vendor=local:snippets/qemu-guest-agent.yml"
   ciuser     = "ubuntu"
   cipassword = "Z_Xcvbn-12"
   sshkeys    = file(var.ssh_pubkey_path)
@@ -233,7 +248,6 @@ resource "proxmox_lxc" "redis" {
   }
 }
 
-# Пример контейнера PostgreSQL через proxmox_lxc
 resource "proxmox_vm_qemu" "postgres" {
   name         = "postgres"
   target_node  = var.target_node
@@ -272,6 +286,7 @@ resource "proxmox_vm_qemu" "postgres" {
     bridge = "vmbr0"
   }
 
+#  cicustom   = "vendor=local:snippets/qemu-guest-agent.yml"
   ciuser     = "ubuntu"
   cipassword = "Z_Xcvbn-12"
   sshkeys    = file(var.ssh_pubkey_path)
