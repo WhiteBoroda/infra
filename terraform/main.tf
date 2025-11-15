@@ -117,9 +117,24 @@ resource "proxmox_vm_qemu" "k3s_node1" {
   nameserver = var.ci_nameserver
   sshkeys    = file(var.ssh_pubkey_path)
   ipconfig0  = "ip=192.168.0.21/24,gw=192.168.0.1"
+  nameserver = "8.8.8.8 1.1.1.1"
   bootdisk   = "scsi0"
   boot       = "cdn"
+
+  onboot     = true
   agent      = 1
+
+  # Increase timeout for cloud-init
+  agent_timeout = "5m"
+
+  # Wait for cloud-init to finish
+  define_connection_info = false
+
+  lifecycle {
+    ignore_changes = [
+      network,
+    ]
+  }
 }
 
 
@@ -171,9 +186,24 @@ resource "proxmox_vm_qemu" "gitlab" {
   nameserver = var.ci_nameserver
   sshkeys    = file(var.ssh_pubkey_path)
   ipconfig0  = "ip=192.168.0.22/24,gw=192.168.0.1"
+  nameserver = "8.8.8.8 1.1.1.1"
   bootdisk   = "scsi0"
   boot       = "cdn"
+
+  onboot     = true
   agent      = 1
+
+  # Increase timeout for cloud-init
+  agent_timeout = "5m"
+
+  # Wait for cloud-init to finish
+  define_connection_info = false
+
+  lifecycle {
+    ignore_changes = [
+      network,
+    ]
+  }
 }
 
 resource "proxmox_vm_qemu" "monitoring" {
@@ -224,9 +254,24 @@ resource "proxmox_vm_qemu" "monitoring" {
   nameserver = var.ci_nameserver
   sshkeys    = file(var.ssh_pubkey_path)
   ipconfig0  = "ip=192.168.0.23/24,gw=192.168.0.1"
+  nameserver = "8.8.8.8 1.1.1.1"
   bootdisk   = "scsi0"
   boot       = "cdn"
+
+  onboot     = true
   agent      = 1
+
+  # Increase timeout for cloud-init
+  agent_timeout = "5m"
+
+  # Wait for cloud-init to finish
+  define_connection_info = false
+
+  lifecycle {
+    ignore_changes = [
+      network,
+    ]
+  }
 }
 resource "proxmox_lxc" "redis" {
   hostname     = "redis-lxc"
@@ -305,7 +350,22 @@ resource "proxmox_vm_qemu" "postgres" {
   nameserver = var.ci_nameserver
   sshkeys    = file(var.ssh_pubkey_path)
   ipconfig0  = "ip=192.168.0.25/24,gw=192.168.0.1"
+  nameserver = "8.8.8.8 1.1.1.1"
   bootdisk   = "scsi0"
   boot       = "cdn"
+
+  onboot     = true
   agent      = 1
+
+  # Increase timeout for cloud-init
+  agent_timeout = "5m"
+
+  # Wait for cloud-init to finish
+  define_connection_info = false
+
+  lifecycle {
+    ignore_changes = [
+      network,
+    ]
+  }
 }

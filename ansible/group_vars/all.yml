@@ -1,6 +1,19 @@
+# Infrastructure IPs
 k3s_master_ip: 192.168.0.20
 k3s_node1_ip: 192.168.0.21
 gitlab_ip: 192.168.0.22
 monitoring_ip: 192.168.0.23
 redis_ip: 192.168.0.24
 postgres_ip: 192.168.0.25
+
+# GitLab Runner registration token
+# Get this token after GitLab is installed:
+# 1. SSH to GitLab: ssh ubuntu@{{ gitlab_ip }}
+# 2. Get root password: sudo cat /etc/gitlab/initial_root_password
+# 3. Login to GitLab Web UI: http://{{ gitlab_ip }}
+# 4. Go to: Admin Area → CI/CD → Runners → "Register an instance runner"
+# 5. Copy the registration token and paste it below
+#
+# Then run: ansible-playbook -i inventory.ini playbook.yml --tags gitlab_runner
+# Or pass it via command line: --extra-vars "gitlab_runner_token=YOUR_TOKEN_HERE"
+gitlab_runner_token: ""  # CHANGE THIS after GitLab installation

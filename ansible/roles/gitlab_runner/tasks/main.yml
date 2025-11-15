@@ -3,11 +3,20 @@
     curl -L https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh | bash
     apt install gitlab-runner -y
 
+- name: Check if registration token is set
+  fail:
+    msg: "GitLab runner registration token is not set. Please set 'gitlab_runner_token' variable in group_vars/all.yml or pass it via --extra-vars"
+  when: gitlab_runner_token is not defined or gitlab_runner_token == ""
+
 - name: Register GitLab runner
   shell: |
     gitlab-runner register --non-interactive \
       --url "http://{{ gitlab_ip }}" \
-      --registration-token "TOKEN" \
+      --registration-token "{{ gitlab_runner_token }}" \
       --executor "docker" \
       --description "k3s-runner" \
-      --docker-image "docker:latest"
+      --docker-image "docker:latest" \
+      --docker-privileged
+  args:
+    creates: /etc/gitlab-runner/config.toml
+  ignore_errors: yes
