@@ -16,4 +16,10 @@ postgres_ip: 192.168.0.25
 #
 # Then run: ansible-playbook -i inventory.ini playbook.yml --tags gitlab_runner
 # Or pass it via command line: --extra-vars "gitlab_runner_token=YOUR_TOKEN_HERE"
-gitlab_runner_token: "glrt-VUJKVe2mr41T42S9X03R3286MQp0OjEKdToxCw.01.121bvytkb"  
+gitlab_runner_token: "glrt-nlrnOHNIaHkWo5g9OxiJ_286MQp0OjEKdToxCw.01.1201m8olh"  
+grafana_admin_password: "admin123"
+grafana_admin_user: "admin"
+grafana_loadbalancer_ip: "192.168.0.41"
+nginx_ingress_loadbalancer_ip: "192.168.0.40"
+metallb_ip_range_start: "192.168.0.40"
+metallb_ip_range_end: "192.168.0.60"
