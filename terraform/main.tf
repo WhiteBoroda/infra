@@ -6,14 +6,12 @@ terraform {
     }
   }
 }
-
 provider "proxmox" {
   pm_api_url = var.pm_api_url
   pm_api_token_id = var.pm_api_token_id
   pm_api_token_secret = var.pm_api_token_secret
   pm_tls_insecure = true
 }
-
 resource "proxmox_vm_qemu" "k3s_master" {
   name         = "k3s-master"
   target_node  = var.target_node
@@ -58,9 +56,7 @@ resource "proxmox_vm_qemu" "k3s_master" {
     model  = "virtio"
     bridge = "vmbr0"
   }
-
-  
-# Cloud-Init configuration
+ 
   ciupgrade  = true
   ipconfig0  = "ip=192.168.0.20/24,gw=192.168.0.1"
   skip_ipv6  = true
@@ -71,7 +67,7 @@ resource "proxmox_vm_qemu" "k3s_master" {
   bootdisk   = "scsi0"
   boot       = "cdn"
   agent      = 1
-  }
+}
 resource "proxmox_vm_qemu" "k3s_node1" {
   name         = "k3s-node1"
   target_node  = var.target_node
@@ -117,27 +113,10 @@ resource "proxmox_vm_qemu" "k3s_node1" {
   nameserver = var.ci_nameserver
   sshkeys    = file(var.ssh_pubkey_path)
   ipconfig0  = "ip=192.168.0.21/24,gw=192.168.0.1"
-  nameserver = "8.8.8.8 1.1.1.1"
   bootdisk   = "scsi0"
   boot       = "cdn"
-
-  onboot     = true
   agent      = 1
-
-  # Increase timeout for cloud-init
-  agent_timeout = "5m"
-
-  # Wait for cloud-init to finish
-  define_connection_info = false
-
-  lifecycle {
-    ignore_changes = [
-      network,
-    ]
-  }
 }
-
-
 resource "proxmox_vm_qemu" "gitlab" {
   name         = "gitlab"
   target_node  = var.target_node
@@ -186,26 +165,10 @@ resource "proxmox_vm_qemu" "gitlab" {
   nameserver = var.ci_nameserver
   sshkeys    = file(var.ssh_pubkey_path)
   ipconfig0  = "ip=192.168.0.22/24,gw=192.168.0.1"
-  nameserver = "8.8.8.8 1.1.1.1"
   bootdisk   = "scsi0"
   boot       = "cdn"
-
-  onboot     = true
   agent      = 1
-
-  # Increase timeout for cloud-init
-  agent_timeout = "5m"
-
-  # Wait for cloud-init to finish
-  define_connection_info = false
-
-  lifecycle {
-    ignore_changes = [
-      network,
-    ]
-  }
 }
-
 resource "proxmox_vm_qemu" "monitoring" {
   name         = "monitoring"
   target_node  = var.target_node
@@ -254,24 +217,9 @@ resource "proxmox_vm_qemu" "monitoring" {
   nameserver = var.ci_nameserver
   sshkeys    = file(var.ssh_pubkey_path)
   ipconfig0  = "ip=192.168.0.23/24,gw=192.168.0.1"
-  nameserver = "8.8.8.8 1.1.1.1"
   bootdisk   = "scsi0"
   boot       = "cdn"
-
-  onboot     = true
   agent      = 1
-
-  # Increase timeout for cloud-init
-  agent_timeout = "5m"
-
-  # Wait for cloud-init to finish
-  define_connection_info = false
-
-  lifecycle {
-    ignore_changes = [
-      network,
-    ]
-  }
 }
 resource "proxmox_vm_qemu" "redis" {
   name         = "redis"
@@ -298,48 +246,34 @@ resource "proxmox_vm_qemu" "redis" {
           discard    = true
           emulatessd = true
           iothread   = true
-          size       = 16
+          size       = 8
           storage    = var.storage
         }
       }
     }
+    ide {
+      ide1 {
+        cloudinit {
+            storage = var.storage
+        }
+      }
+   }
   }
-
   network {
     id     = 0
     model  = "virtio"
     bridge = "vmbr0"
   }
 
-  # VGA console instead of serial
-  vga {
-    type = "std"
-  }
-
   ciuser     = var.ci_username
   cipassword = var.ci_password
+  nameserver = var.ci_nameserver
   sshkeys    = file(var.ssh_pubkey_path)
-  ipconfig0  = "ip=192.168.0.24/24,gw=${var.ci_gateway}"
-  nameserver = "8.8.8.8 1.1.1.1"
+  ipconfig0  = "ip=192.168.0.24/24,gw=192.168.0.1"
   bootdisk   = "scsi0"
-  boot       = "cdn"
-
-  onboot     = true
+  boot       = "cdn" 
   agent      = 1
-
-  # Increase timeout for cloud-init
-  agent_timeout = "5m"
-
-  # Wait for cloud-init to finish
-  define_connection_info = false
-
-  lifecycle {
-    ignore_changes = [
-      network,
-    ]
-  }
 }
-
 resource "proxmox_vm_qemu" "postgres" {
   name         = "postgres"
   target_node  = var.target_node
@@ -389,22 +323,7 @@ resource "proxmox_vm_qemu" "postgres" {
   nameserver = var.ci_nameserver
   sshkeys    = file(var.ssh_pubkey_path)
   ipconfig0  = "ip=192.168.0.25/24,gw=192.168.0.1"
-  nameserver = "8.8.8.8 1.1.1.1"
   bootdisk   = "scsi0"
   boot       = "cdn"
-
-  onboot     = true
   agent      = 1
-
-  # Increase timeout for cloud-init
-  agent_timeout = "5m"
-
-  # Wait for cloud-init to finish
-  define_connection_info = false
-
-  lifecycle {
-    ignore_changes = [
-      network,
-    ]
-  }
 }

@@ -8,8 +8,8 @@
 
 - name: Install Docker engine
   shell: |
-    add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
-    apt update && apt install docker-ce -y
+    sudo add-apt-repository -y "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+    sudo apt update && apt install docker-ce -y
 
 - name: Run Grafana and Prometheus
   shell: |

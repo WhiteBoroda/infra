@@ -16,4 +16,4 @@ postgres_ip: 192.168.0.25
 #
 # Then run: ansible-playbook -i inventory.ini playbook.yml --tags gitlab_runner
 # Or pass it via command line: --extra-vars "gitlab_runner_token=YOUR_TOKEN_HERE"
-gitlab_runner_token: ""  # CHANGE THIS after GitLab installation
+gitlab_runner_token: "glrt-VUJKVe2mr41T42S9X03R3286MQp0OjEKdToxCw.01.121bvytkb"  
