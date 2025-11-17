@@ -273,31 +273,70 @@ resource "proxmox_vm_qemu" "monitoring" {
     ]
   }
 }
-resource "proxmox_lxc" "redis" {
-  hostname     = "redis-lxc"
+resource "proxmox_vm_qemu" "redis" {
+  name         = "redis"
   target_node  = var.target_node
-  ostemplate   = "local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst"
-  password     = var.ci_password
-  cores        = 2
-  memory       = 1024
-  swap         = 512
-  start        = true
-  unprivileged = true
+  clone        = var.template_name
+  full_clone   = true
 
-  rootfs {
-    storage = var.storage
-    size    = "8G"
+  cpu {
+    cores   = 2
+    sockets = 1
+    type    = "host"
   }
 
-  features {
-    nesting = true
+  memory  = 2048
+  scsihw  = "virtio-scsi-single"
+  os_type = "cloud-init"
+
+  disks {
+    scsi {
+      scsi0 {
+        disk {
+          backup     = true
+          cache      = "none"
+          discard    = true
+          emulatessd = true
+          iothread   = true
+          size       = 16
+          storage    = var.storage
+        }
+      }
+    }
   }
 
   network {
-    name   = "eth0"
+    id     = 0
+    model  = "virtio"
     bridge = "vmbr0"
-    ip     = "192.168.0.24/24"
-    gw     = var.ci_gateway
+  }
+
+  # VGA console instead of serial
+  vga {
+    type = "std"
+  }
+
+  ciuser     = var.ci_username
+  cipassword = var.ci_password
+  sshkeys    = file(var.ssh_pubkey_path)
+  ipconfig0  = "ip=192.168.0.24/24,gw=${var.ci_gateway}"
+  nameserver = "8.8.8.8 1.1.1.1"
+  bootdisk   = "scsi0"
+  boot       = "cdn"
+
+  onboot     = true
+  agent      = 1
+
+  # Increase timeout for cloud-init
+  agent_timeout = "5m"
+
+  # Wait for cloud-init to finish
+  define_connection_info = false
+
+  lifecycle {
+    ignore_changes = [
+      network,
+    ]
   }
 }
 
