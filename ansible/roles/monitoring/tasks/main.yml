@@ -4,12 +4,12 @@
     state: present
 
 - name: Add Docker GPG key
-  shell: curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+  shell: curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
 
 - name: Install Docker engine
   shell: |
-    sudo add-apt-repository -y "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
-    sudo apt update && apt install docker-ce -y
+    add-apt-repository -y "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+    apt update && apt install docker-ce -y
 
 - name: Run Grafana and Prometheus
   shell: |
