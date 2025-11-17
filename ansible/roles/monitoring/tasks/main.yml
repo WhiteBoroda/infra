@@ -11,9 +11,33 @@
     sudo add-apt-repository -y "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
     sudo apt update && apt install docker-ce -y
 
-- name: Run Grafana and Prometheus
+- name: Stop and remove existing monitoring containers
   shell: |
-    docker network create monitoring || true
-    docker run -d --name prometheus --network monitoring -p 9090:9090 prom/prometheus
-    docker run -d --name grafana --network monitoring -p 3000:3000 grafana/grafana
-    docker run -d --name alertmanager --network monitoring -p 9093:9093 prom/alertmanager
+    docker stop prometheus grafana alertmanager 2>/dev/null || true
+    docker rm prometheus grafana alertmanager 2>/dev/null || true
+  ignore_errors: yes
+ 
+- name: Create monitoring network
+  shell: docker network create monitoring || true
+  ignore_errors: yes
+ 
+- name: Run Prometheus
+  shell: |
+    docker run -d --name prometheus --network monitoring \
+      --restart unless-stopped \
+      -p 9090:9090 \
+      prom/prometheus
+ 
+- name: Run Grafana
+  shell: |
+    docker run -d --name grafana --network monitoring \
+      --restart unless-stopped \
+      -p 3000:3000 \
+      grafana/grafana
+ 
+- name: Run Alertmanager
+  shell: |
+    docker run -d --name alertmanager --network monitoring \
+      --restart unless-stopped \
+      -p 9093:9093 \
+      prom/alertmanager

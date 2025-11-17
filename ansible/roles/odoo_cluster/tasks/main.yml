@@ -1,15 +1,22 @@
 - name: Create namespace
   shell: kubectl create ns odoo || true
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
 
 - name: Deploy PostgreSQL via Helm
   shell: |
     helm repo add bitnami https://charts.bitnami.com/bitnami
     helm install postgres bitnami/postgresql --namespace odoo --set auth.postgresPassword=odoo123 --set primary.persistence.enabled=false
-
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+ 
 - name: Deploy Redis for cache
   shell: |
     helm install redis bitnami/redis --namespace odoo --set architecture=standalone --set auth.enabled=false --set master.persistence.enabled=false
-
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+ 
 - name: Deploy Odoo cluster
   shell: |
     kubectl apply -n odoo -f - <<EOF
@@ -57,3 +64,5 @@
         targetPort: 8069
       type: LoadBalancer
     EOF
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml

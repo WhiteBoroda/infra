@@ -20,20 +20,20 @@
 - name: Create .kube directory
   when: "'k3s_master' in group_names"
   file:
-    path: /home/ubuntu/.kube
+    path: /home/{{ ansible_user }}/.kube
     state: directory
-    owner: ubuntu
-    group: ubuntu
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
     mode: '0755'
 
 - name: Copy kubeconfig to user directory
   when: "'k3s_master' in group_names"
   copy:
     src: /etc/rancher/k3s/k3s.yaml
-    dest: /home/ubuntu/.kube/config
+    dest: /home/{{ ansible_user }}/.kube/config
     remote_src: yes
-    owner: ubuntu
-    group: ubuntu
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
     mode: '0600'
 
 - name: Copy k3s token to local
