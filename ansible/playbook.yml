@@ -11,5 +11,5 @@
     - { role: k3s, when: "'k3s_master' in group_names or 'k3s_nodes' in group_names", tags: ['k3s'] }
     - { role: nginx_ingress, when: "'k3s_master' in group_names", tags: ['k3s', 'ingress'] }
     - { role: odoo_cluster, when: "'k3s_master' in group_names", tags: ['k3s', 'odoo'] }
-    - { role: prometheus_grafana, when: "'monitoring' in group_names", tags: ['monitoring', 'grafana'] }
+    - { role: prometheus_grafana, when: "'k3s_master' in group_names", tags: ['monitoring', 'grafana'] }
 
