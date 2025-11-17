@@ -1,11 +1,15 @@
 - name: Create monitoring namespace
   shell: kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
 - name: Add Helm repo for Prometheus and Grafana
   shell: |
     helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
     helm repo add grafana https://grafana.github.io/helm-charts
     helm repo update
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
 - name: Install Prometheus stack
   shell: |
@@ -13,6 +17,8 @@
       --namespace monitoring \
       --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
       --set grafana.enabled=false
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
 - name: Install Grafana
   shell: |
@@ -24,6 +30,8 @@
       --set service.loadBalancerIP=192.168.0.41 \
       --set persistence.enabled=true \
       --set persistence.size=5Gi
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
 - name: Copy Grafana dashboards
   copy:
@@ -66,6 +74,8 @@
                 port:
                   number: 80
     EOF
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
 - name: Print Grafana credentials
   debug:
