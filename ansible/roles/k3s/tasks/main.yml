@@ -60,7 +60,7 @@
 
 - name: Install kubectl bash completion
   shell: |
-    kubectl completion bash | sudo tee /etc/bash_completion.d/kubectl > /dev/null
+    kubectl completion bash | tee /etc/bash_completion.d/kubectl > /dev/null
   args:
     creates: /etc/bash_completion.d/kubectl
 
