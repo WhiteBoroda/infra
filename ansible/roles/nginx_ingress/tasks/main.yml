@@ -42,9 +42,19 @@
 - name: Install cert-manager for HTTPS
   shell: |
     kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.4/cert-manager.yaml
-    kubectl wait --namespace cert-manager --for=condition=available --timeout=90s deployment/cert-manager
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for cert-manager to be ready
+  shell: |
+    kubectl wait --namespace cert-manager --for=condition=available --timeout=180s deployment/cert-manager
+    kubectl wait --namespace cert-manager --for=condition=available --timeout=180s deployment/cert-manager-webhook
+    kubectl wait --namespace cert-manager --for=condition=available --timeout=180s deployment/cert-manager-cainjector
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for cert-manager webhook to be ready
+  shell: sleep 10
 
 - name: Configure ClusterIssuer for Let's Encrypt (staging)
   shell: |
