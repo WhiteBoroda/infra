@@ -15,10 +15,11 @@ show_help() {
     echo "Команды:"
     echo "  all           - Запустить все роли на всех хостах"
     echo "  k3s           - Установить/обновить k3s кластер"
-    echo "  odoo          - Развернуть Odoo"
+    echo "  odoo          - Развернуть Odoo (разные модули на разных нодах)"
     echo "  monitoring    - Развернуть standalone мониторинг (на 192.168.0.23)"
     echo "  grafana       - Развернуть мониторинг в k3s (Prometheus + Grafana)"
     echo "  ingress       - Установить NGINX Ingress и cert-manager"
+    echo "  dashboard     - Установить Kubernetes Dashboard (GUI)"
     echo "  gitlab        - Установить GitLab"
     echo "  gitlab-runner - Установить GitLab Runner"
     echo "  redis         - Настроить Redis"
@@ -60,6 +61,10 @@ case "${1:-}" in
     ingress)
         echo "=== Установка NGINX Ingress ==="
         ansible-playbook -i ansible/inventory.ini ansible/playbook.yml --tags ingress --limit k3s_master
+        ;;
+    dashboard)
+        echo "=== Установка Kubernetes Dashboard ==="
+        ansible-playbook -i ansible/inventory.ini ansible/playbook.yml --tags dashboard --limit k3s_master
         ;;
     gitlab)
         echo "=== Установка GitLab ==="

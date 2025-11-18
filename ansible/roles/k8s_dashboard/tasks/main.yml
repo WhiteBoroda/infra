@@ -1,0 +1,60 @@
+- name: Install Kubernetes Dashboard
+  shell: |
+    kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.7.0/aio/deploy/recommended.yaml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Create admin service account for Dashboard
+  shell: |
+    kubectl apply -f - <<EOF
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: admin-user
+      namespace: kubernetes-dashboard
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: admin-user
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: cluster-admin
+    subjects:
+    - kind: ServiceAccount
+      name: admin-user
+      namespace: kubernetes-dashboard
+    EOF
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Expose Dashboard via LoadBalancer
+  shell: |
+    kubectl patch svc kubernetes-dashboard -n kubernetes-dashboard -p '{"spec": {"type": "LoadBalancer", "loadBalancerIP": "192.168.0.42"}}'
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Get Dashboard access token
+  shell: |
+    kubectl -n kubernetes-dashboard create token admin-user --duration=876000h
+  register: dashboard_token
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Print Dashboard access info
+  debug:
+    msg:
+      - "Kubernetes Dashboard установлен и доступен по адресу: https://192.168.0.42"
+      - "ВАЖНО: При первом доступе браузер покажет предупреждение о сертификате - это нормально, нажмите 'Продолжить'"
+      - ""
+      - "Access Token (сохраните в безопасном месте):"
+      - "{{ dashboard_token.stdout }}"
+      - ""
+      - "Для доступа:"
+      - "1. Откройте https://192.168.0.42"
+      - "2. Выберите 'Token'"
+      - "3. Вставьте токен выше"
+      - ""
+      - "Альтернативный способ получить токен:"
+      - "kubectl -n kubernetes-dashboard create token admin-user --duration=876000h"

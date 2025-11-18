@@ -81,22 +81,27 @@
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
-- name: Deploy Odoo cluster
+- name: Deploy Odoo Web/Sales cluster
   shell: |
     kubectl apply -n odoo -f - <<EOF
     apiVersion: apps/v1
     kind: Deployment
     metadata:
-      name: odoo
+      name: odoo-web
+      labels:
+        app: odoo
+        module-group: web
     spec:
-      replicas: 3
+      replicas: 2
       selector:
         matchLabels:
           app: odoo
+          module-group: web
       template:
         metadata:
           labels:
             app: odoo
+            module-group: web
         spec:
           containers:
           - name: odoo
@@ -112,6 +117,80 @@
                 value: odoo123
               - name: PORT
                 value: "5432"
+              - name: SERVER_WIDE_MODULES
+                value: "web,sale,purchase,crm,website"
+    ---
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: odoo-accounting
+      labels:
+        app: odoo
+        module-group: accounting
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: odoo
+          module-group: accounting
+      template:
+        metadata:
+          labels:
+            app: odoo
+            module-group: accounting
+        spec:
+          containers:
+          - name: odoo
+            image: odoo:17
+            ports:
+              - containerPort: 8069
+            env:
+              - name: HOST
+                value: postgres-postgresql.odoo.svc.cluster.local
+              - name: USER
+                value: odoo
+              - name: PASSWORD
+                value: odoo123
+              - name: PORT
+                value: "5432"
+              - name: SERVER_WIDE_MODULES
+                value: "account,account_accountant,account_invoicing"
+    ---
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: odoo-inventory
+      labels:
+        app: odoo
+        module-group: inventory
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: odoo
+          module-group: inventory
+      template:
+        metadata:
+          labels:
+            app: odoo
+            module-group: inventory
+        spec:
+          containers:
+          - name: odoo
+            image: odoo:17
+            ports:
+              - containerPort: 8069
+            env:
+              - name: HOST
+                value: postgres-postgresql.odoo.svc.cluster.local
+              - name: USER
+                value: odoo
+              - name: PASSWORD
+                value: odoo123
+              - name: PORT
+                value: "5432"
+              - name: SERVER_WIDE_MODULES
+                value: "stock,mrp,purchase_stock"
     ---
     apiVersion: v1
     kind: Service
@@ -125,6 +204,45 @@
         port: 8069
         targetPort: 8069
       type: LoadBalancer
+    ---
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: odoo-web
+    spec:
+      selector:
+        app: odoo
+        module-group: web
+      ports:
+      - name: web
+        port: 8069
+        targetPort: 8069
+    ---
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: odoo-accounting
+    spec:
+      selector:
+        app: odoo
+        module-group: accounting
+      ports:
+      - name: web
+        port: 8069
+        targetPort: 8069
+    ---
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: odoo-inventory
+    spec:
+      selector:
+        app: odoo
+        module-group: inventory
+      ports:
+      - name: web
+        port: 8069
+        targetPort: 8069
     EOF
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
