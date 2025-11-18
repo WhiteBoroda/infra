@@ -5,9 +5,6 @@
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
-  environment:
-    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
- 
 - name: Configure MetalLB address pool
   shell: |
     kubectl apply -f - <<EOF
@@ -27,9 +24,6 @@
       name: default
       namespace: metallb-system
     EOF
-  environment:
-    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
@@ -109,9 +103,6 @@
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
-  environment:
-    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
- 
 - name: Configure Ingress for Odoo
   shell: |
     kubectl apply -n odoo -f - <<EOF
