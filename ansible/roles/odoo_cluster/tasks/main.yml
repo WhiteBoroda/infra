@@ -6,7 +6,13 @@
 - name: Deploy PostgreSQL via Helm
   shell: |
     helm repo add bitnami https://charts.bitnami.com/bitnami
-    helm install postgres bitnami/postgresql --namespace odoo --set auth.postgresPassword=odoo123 --set primary.persistence.enabled=false
+    helm install postgres bitnami/postgresql \
+      --namespace odoo \
+      --set auth.postgresPassword=postgres123 \
+      --set auth.username=odoo \
+      --set auth.password=odoo123 \
+      --set auth.database=odoo \
+      --set primary.persistence.enabled=false
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
@@ -42,11 +48,13 @@
               - name: HOST
                 value: postgres-postgresql.odoo.svc.cluster.local
               - name: USER
-                value: postgres
+                value: odoo
               - name: PASSWORD
                 value: odoo123
               - name: PORT
                 value: "5432"
+              - name: DB_NAME
+                value: odoo
               - name: REDIS_URL
                 value: redis-master.odoo.svc.cluster.local
     ---
