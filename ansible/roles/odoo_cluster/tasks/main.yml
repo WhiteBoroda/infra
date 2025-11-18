@@ -51,7 +51,6 @@
       --set auth.postgresPassword=postgres123 \
       --set auth.username=odoo \
       --set auth.password=odoo123 \
-      --set auth.database=odoo \
       --set primary.persistence.enabled=false
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
@@ -113,10 +112,6 @@
                 value: odoo123
               - name: PORT
                 value: "5432"
-              - name: DB_NAME
-                value: odoo
-              - name: REDIS_URL
-                value: redis-master.odoo.svc.cluster.local
     ---
     apiVersion: v1
     kind: Service
