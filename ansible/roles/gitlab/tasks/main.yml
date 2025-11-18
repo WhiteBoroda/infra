@@ -9,7 +9,23 @@
     state: present
     update_cache: yes
 
-- name: Install GitLab via omnibus package
+- name: Install GitLab CE via omnibus package
   shell: |
-    curl https://packages.gitlab.com/install/repositories/gitlab/gitlab-ee/script.deb.sh | bash
-    EXTERNAL_URL="http://{{ gitlab_ip }}" apt install gitlab-ee -y
+    curl https://packages.gitlab.com/install/repositories/gitlab/gitlab-ce/script.deb.sh | bash
+    EXTERNAL_URL="http://{{ gitlab_ip }}" apt install gitlab-ce -y
+  args:
+    creates: /usr/bin/gitlab-ctl
+
+- name: Wait for GitLab to start
+  wait_for:
+    port: 80
+    host: "{{ gitlab_ip }}"
+    delay: 10
+    timeout: 300
+
+- name: Print GitLab initial setup info
+  debug:
+    msg:
+      - "GitLab установлен и доступен по адресу: http://{{ gitlab_ip }}"
+      - "Root пароль можно получить командой: sudo cat /etc/gitlab/initial_root_password"
+      - "После первого входа создайте проект и получите runner token в Settings → CI/CD → Runners"

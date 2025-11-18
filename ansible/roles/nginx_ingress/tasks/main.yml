@@ -5,9 +5,6 @@
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
-  environment:
-    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
- 
 - name: Configure MetalLB address pool
   shell: |
     kubectl apply -f - <<EOF
@@ -27,9 +24,6 @@
       name: default
       namespace: metallb-system
     EOF
-  environment:
-    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
@@ -63,7 +57,21 @@
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
-- name: Wait for cert-manager to be ready
+- name: Wait for cert-manager namespace to be created
+  shell: |
+    for i in {1..30}; do
+      if kubectl get namespace cert-manager >/dev/null 2>&1; then
+        echo "Namespace cert-manager is ready"
+        exit 0
+      fi
+      echo "Waiting for cert-manager namespace... ($i/30)"
+      sleep 2
+    done
+    exit 1
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for cert-manager deployments to be ready
   shell: |
     kubectl wait --namespace cert-manager --for=condition=available --timeout=180s deployment/cert-manager
     kubectl wait --namespace cert-manager --for=condition=available --timeout=180s deployment/cert-manager-webhook
@@ -95,9 +103,6 @@
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
-  environment:
-    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
- 
 - name: Configure Ingress for Odoo
   shell: |
     kubectl apply -n odoo -f - <<EOF

@@ -3,10 +3,55 @@
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
+- name: Check if PostgreSQL is already installed
+  shell: helm list -n odoo | grep -q postgres
+  register: postgres_exists
+  failed_when: false
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Uninstall existing PostgreSQL if found
+  shell: helm uninstall postgres -n odoo
+  when: postgres_exists.rc == 0
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Check if Redis is already installed
+  shell: helm list -n odoo | grep -q redis
+  register: redis_exists
+  failed_when: false
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Uninstall existing Redis if found
+  shell: helm uninstall redis -n odoo
+  when: redis_exists.rc == 0
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for pods to terminate
+  shell: |
+    for i in {1..30}; do
+      if [ $(kubectl get pods -n odoo --no-headers 2>/dev/null | grep -v "Running\|Completed" | wc -l) -eq 0 ]; then
+        echo "All pods terminated"
+        exit 0
+      fi
+      echo "Waiting for pods to terminate... ($i/30)"
+      sleep 2
+    done
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when: postgres_exists.rc == 0 or redis_exists.rc == 0
+
 - name: Deploy PostgreSQL via Helm
   shell: |
     helm repo add bitnami https://charts.bitnami.com/bitnami
-    helm install postgres bitnami/postgresql --namespace odoo --set auth.postgresPassword=odoo123 --set primary.persistence.enabled=false
+    helm install postgres bitnami/postgresql \
+      --namespace odoo \
+      --set auth.postgresPassword=postgres123 \
+      --set auth.username=odoo \
+      --set auth.password=odoo123 \
+      --set primary.persistence.enabled=false
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
@@ -16,22 +61,47 @@
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
-- name: Deploy Odoo cluster
+- name: Delete existing Odoo deployment if exists
+  shell: |
+    kubectl delete deployment odoo -n odoo --ignore-not-found=true
+    kubectl delete service odoo -n odoo --ignore-not-found=true
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for Odoo pods to terminate
+  shell: |
+    for i in {1..30}; do
+      if ! kubectl get pods -n odoo -l app=odoo --no-headers 2>/dev/null | grep -q .; then
+        echo "Odoo pods terminated"
+        exit 0
+      fi
+      echo "Waiting for Odoo pods to terminate... ($i/30)"
+      sleep 2
+    done
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Deploy Odoo Web/Sales cluster
   shell: |
     kubectl apply -n odoo -f - <<EOF
     apiVersion: apps/v1
     kind: Deployment
     metadata:
-      name: odoo
+      name: odoo-web
+      labels:
+        app: odoo
+        module-group: web
     spec:
-      replicas: 3
+      replicas: 2
       selector:
         matchLabels:
           app: odoo
+          module-group: web
       template:
         metadata:
           labels:
             app: odoo
+            module-group: web
         spec:
           containers:
           - name: odoo
@@ -42,13 +112,85 @@
               - name: HOST
                 value: postgres-postgresql.odoo.svc.cluster.local
               - name: USER
-                value: postgres
+                value: odoo
               - name: PASSWORD
                 value: odoo123
               - name: PORT
                 value: "5432"
-              - name: REDIS_URL
-                value: redis-master.odoo.svc.cluster.local
+              - name: SERVER_WIDE_MODULES
+                value: "web,sale,purchase,crm,website"
+    ---
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: odoo-accounting
+      labels:
+        app: odoo
+        module-group: accounting
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: odoo
+          module-group: accounting
+      template:
+        metadata:
+          labels:
+            app: odoo
+            module-group: accounting
+        spec:
+          containers:
+          - name: odoo
+            image: odoo:17
+            ports:
+              - containerPort: 8069
+            env:
+              - name: HOST
+                value: postgres-postgresql.odoo.svc.cluster.local
+              - name: USER
+                value: odoo
+              - name: PASSWORD
+                value: odoo123
+              - name: PORT
+                value: "5432"
+              - name: SERVER_WIDE_MODULES
+                value: "account,account_accountant,account_invoicing"
+    ---
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: odoo-inventory
+      labels:
+        app: odoo
+        module-group: inventory
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: odoo
+          module-group: inventory
+      template:
+        metadata:
+          labels:
+            app: odoo
+            module-group: inventory
+        spec:
+          containers:
+          - name: odoo
+            image: odoo:17
+            ports:
+              - containerPort: 8069
+            env:
+              - name: HOST
+                value: postgres-postgresql.odoo.svc.cluster.local
+              - name: USER
+                value: odoo
+              - name: PASSWORD
+                value: odoo123
+              - name: PORT
+                value: "5432"
+              - name: SERVER_WIDE_MODULES
+                value: "stock,mrp,purchase_stock"
     ---
     apiVersion: v1
     kind: Service
@@ -62,6 +204,45 @@
         port: 8069
         targetPort: 8069
       type: LoadBalancer
+    ---
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: odoo-web
+    spec:
+      selector:
+        app: odoo
+        module-group: web
+      ports:
+      - name: web
+        port: 8069
+        targetPort: 8069
+    ---
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: odoo-accounting
+    spec:
+      selector:
+        app: odoo
+        module-group: accounting
+      ports:
+      - name: web
+        port: 8069
+        targetPort: 8069
+    ---
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: odoo-inventory
+    spec:
+      selector:
+        app: odoo
+        module-group: inventory
+      ports:
+      - name: web
+        port: 8069
+        targetPort: 8069
     EOF
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
