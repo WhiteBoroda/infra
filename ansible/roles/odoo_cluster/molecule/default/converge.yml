@@ -1,0 +1,9 @@
+---
+# Molecule playbook for testing odoo_cluster role
+- name: Converge
+  hosts: all
+  become: true
+  tasks:
+    - name: Include odoo_cluster role
+      ansible.builtin.include_role:
+        name: odoo_cluster

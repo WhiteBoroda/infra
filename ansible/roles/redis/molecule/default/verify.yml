@@ -1,0 +1,46 @@
+---
+# Molecule verification playbook for redis role
+- name: Verify
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: Check if Redis is installed
+      ansible.builtin.command: redis-server --version
+      register: redis_version
+      changed_when: false
+      failed_when: redis_version.rc != 0
+
+    - name: Display Redis version
+      ansible.builtin.debug:
+        msg: "Redis version: {{ redis_version.stdout }}"
+
+    - name: Check Redis service status
+      ansible.builtin.systemd:
+        name: redis
+      register: redis_service
+      check_mode: true
+
+    - name: Verify Redis service is enabled
+      ansible.builtin.assert:
+        that:
+          - redis_service.status.UnitFileState == "enabled"
+        fail_msg: "Redis service is not enabled"
+        success_msg: "Redis service is properly enabled"
+
+    - name: Check Redis configuration file
+      ansible.builtin.stat:
+        path: /etc/redis/redis.conf
+      register: redis_config
+      failed_when: not redis_config.stat.exists
+
+    - name: Test Redis connectivity
+      ansible.builtin.command: redis-cli ping
+      register: redis_ping
+      changed_when: false
+      failed_when: redis_ping.stdout != "PONG"
+      ignore_errors: true
+
+    - name: Display Redis connectivity test
+      ansible.builtin.debug:
+        msg: "Redis connectivity: {{ redis_ping.stdout }}"
+      when: redis_ping.rc == 0

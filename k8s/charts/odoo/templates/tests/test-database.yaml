@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "odoo.fullname" . }}-test-database"
+  labels:
+    {{- include "odoo.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  containers:
+    - name: postgres-test
+      image: postgres:15
+      env:
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "odoo.fullname" . }}
+              key: postgresql-password
+        - name: PGHOST
+          value: {{ .Values.postgresql.host | quote }}
+        - name: PGPORT
+          value: {{ .Values.postgresql.port | quote }}
+        - name: PGDATABASE
+          value: {{ .Values.postgresql.database | quote }}
+        - name: PGUSER
+          value: {{ .Values.postgresql.username | quote }}
+      command:
+        - /bin/sh
+        - -c
+        - |
+          echo "Testing PostgreSQL connection..."
+          until pg_isready -h $PGHOST -p $PGPORT -U $PGUSER; do
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+          echo "PostgreSQL is ready!"
+          psql -h $PGHOST -U $PGUSER -d $PGDATABASE -c "SELECT version();"
+          echo "Database connection test successful!"
+  restartPolicy: Never

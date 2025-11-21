@@ -1,0 +1,9 @@
+---
+# Molecule playbook for testing redis role
+- name: Converge
+  hosts: all
+  become: true
+  tasks:
+    - name: Include redis role
+      ansible.builtin.include_role:
+        name: redis
