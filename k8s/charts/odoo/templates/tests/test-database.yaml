@@ -10,7 +10,7 @@ metadata:
 spec:
   containers:
     - name: postgres-test
-      image: postgres:15
+      image: {{ .Values.tests.images.postgres | default "postgres:15" }}
       env:
         - name: PGPASSWORD
           valueFrom:
@@ -32,7 +32,7 @@ spec:
           echo "Testing PostgreSQL connection..."
           until pg_isready -h $PGHOST -p $PGPORT -U $PGUSER; do
             echo "Waiting for PostgreSQL..."
-            sleep 2
+            sleep {{ .Values.tests.sleep | default "2" }}
           done
           echo "PostgreSQL is ready!"
           psql -h $PGHOST -U $PGUSER -d $PGDATABASE -c "SELECT version();"

@@ -4,6 +4,13 @@
 setup() {
     SCRIPT_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
     SETUP_SCRIPT="${SCRIPT_DIR}/setup-infrastructure.sh"
+
+    # Load test configuration
+    CONFIG_FILE="${SCRIPT_DIR}/../config/test-variables.sh"
+    if [ -f "${CONFIG_FILE}" ]; then
+        # shellcheck source=../../config/test-variables.sh
+        source "${CONFIG_FILE}"
+    fi
 }
 
 @test "setup-infrastructure.sh exists and is executable" {

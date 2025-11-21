@@ -1,0 +1,55 @@
+---
+# Molecule defaults for all roles
+# This file contains shared configuration for Molecule tests
+
+# Docker driver configuration
+molecule_driver:
+  name: docker
+
+# Default test platform configuration
+molecule_platform_defaults:
+  image: geerlingguy/docker-ubuntu2204-ansible:latest
+  command: ""
+  volumes:
+    - /sys/fs/cgroup:/sys/fs/cgroup:rw
+  cgroupns_mode: host
+  privileged: true
+  pre_build_image: true
+
+# Provisioner configuration
+molecule_provisioner_defaults:
+  name: ansible
+  config_options:
+    defaults:
+      interpreter_python: auto_silent
+      callback_whitelist: profile_tasks, timer, yaml
+
+# Verifier configuration
+molecule_verifier_defaults:
+  name: ansible
+
+# Lint configuration
+molecule_lint_defaults: |
+  set -e
+  yamllint .
+  ansible-lint .
+
+# Test sequence (can be overridden per role)
+molecule_test_sequence:
+  - dependency
+  - cleanup
+  - destroy
+  - syntax
+  - create
+  - prepare
+  - converge
+  - idempotence
+  - side_effect
+  - verify
+  - cleanup
+  - destroy
+
+# Environment variables for tests
+molecule_test_env:
+  ANSIBLE_FORCE_COLOR: "1"
+  ANSIBLE_VERBOSITY: "1"

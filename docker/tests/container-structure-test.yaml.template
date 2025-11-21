@@ -1,0 +1,71 @@
+schemaVersion: '2.0.0'
+
+# Command tests - verify required commands are available
+commandTests:
+  - name: 'odoo-bin exists'
+    command: 'which'
+    args: ['odoo-bin']
+    expectedOutput: ['/usr/bin/odoo-bin']
+
+  - name: 'python3 version'
+    command: 'python3'
+    args: ['--version']
+    expectedOutput: ['Python 3.*']
+
+  - name: 'pip3 is installed'
+    command: 'which'
+    args: ['pip3']
+    exitCode: 0
+
+  - name: 'check odoo version'
+    command: 'odoo'
+    args: ['--version']
+    expectedOutput: ['Odoo Server ${ODOO_VERSION}']
+
+# File existence tests
+fileExistenceTests:
+  - name: 'Odoo configuration directory exists'
+    path: '${ODOO_CONFIG_DIR}'
+    shouldExist: true
+    isDirectory: true
+
+  - name: 'Odoo addons directory exists'
+    path: '${ODOO_ADDONS_DIR}'
+    shouldExist: true
+    isDirectory: true
+
+  - name: 'Odoo log directory exists'
+    path: '${ODOO_LOG_DIR}'
+    shouldExist: true
+    isDirectory: true
+
+  - name: 'Python requirements installed'
+    path: '${PYTHON_SITE_PACKAGES}'
+    shouldExist: true
+    isDirectory: true
+
+# File content tests
+fileContentTests:
+  - name: 'Check if custom requirements were installed'
+    path: '/requirements.txt'
+    shouldExist: true
+    expectedContents: ['pytest.*', 'coverage.*']
+
+# Metadata tests
+metadataTest:
+  env:
+    - key: 'ODOO_RC'
+      value: '${ODOO_CONFIG_FILE}'
+    - key: 'LANG'
+      value: 'C.UTF-8'
+
+  exposedPorts: ['${ODOO_HTTP_PORT}', '${ODOO_LONGPOLLING_PORT}']
+
+  workdir: '${ODOO_WORKDIR}'
+
+  cmd: ['odoo']
+
+# License tests (optional)
+licenseTests:
+  - debian: true
+    files: []

@@ -4,17 +4,35 @@
 
 set -euo pipefail
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+# Load configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="${SCRIPT_DIR}/../config/test-variables.sh"
 
-# Configuration
-NAMESPACE="${1:-odoo-dev}"
-TIMEOUT="${2:-300}"
-MAX_RETRIES=10
-RETRY_DELAY=5
+if [ -f "${CONFIG_FILE}" ]; then
+    # shellcheck source=../config/test-variables.sh
+    source "${CONFIG_FILE}"
+else
+    echo "Warning: Configuration file not found at ${CONFIG_FILE}"
+    echo "Using default values..."
+fi
+
+# Colors (from config or defaults)
+RED="${COLOR_RED:-\033[0;31m}"
+GREEN="${COLOR_GREEN:-\033[0;32m}"
+YELLOW="${COLOR_YELLOW:-\033[1;33m}"
+NC="${COLOR_NC:-\033[0m}"
+
+# Configuration (from config file or arguments/defaults)
+NAMESPACE="${1:-${K8S_NAMESPACE_DEV:-odoo-dev}}"
+TIMEOUT="${2:-${TEST_DEFAULT_TIMEOUT:-300}}"
+MAX_RETRIES="${TEST_MAX_RETRIES:-10}"
+RETRY_DELAY="${TEST_RETRY_DELAY:-5}"
+ODOO_PORT="${ODOO_HTTP_PORT:-8069}"
+PORT_FORWARD_DELAY="${TEST_PORT_FORWARD_DELAY:-3}"
+REDIS_IMAGE="${TEST_REDIS_CLIENT_IMAGE:-redis:7-alpine}"
+HTTP_SUCCESS_CODES="${HTTP_SUCCESS_CODES:-200|302|303}"
+LABEL_ODOO="${K8S_LABEL_APP:-app.kubernetes.io/name=odoo}"
+LABEL_REDIS="${K8S_LABEL_REDIS:-app=redis}"
 
 # Counters
 PASSED=0
@@ -78,7 +96,7 @@ test_pods_running() {
 # Test 3: Check Odoo service endpoint
 test_odoo_service() {
     echo "Test 3: Checking Odoo service endpoint..."
-    if kubectl get service -n "${NAMESPACE}" -l app.kubernetes.io/name=odoo &>/dev/null; then
+    if kubectl get service -n "${NAMESPACE}" -l "${LABEL_ODOO}" &>/dev/null; then
         log "Odoo service exists"
         return 0
     else
@@ -91,7 +109,7 @@ test_odoo_service() {
 test_postgres_connection() {
     echo "Test 4: Checking PostgreSQL connectivity..."
 
-    local pod_name=$(kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/name=odoo -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    local pod_name=$(kubectl get pods -n "${NAMESPACE}" -l "${LABEL_ODOO}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
 
     if [ -z "$pod_name" ]; then
         error "Could not find Odoo pod for PostgreSQL connection test"
@@ -118,7 +136,7 @@ test_redis_connection() {
         return 0
     fi
 
-    local redis_host=$(kubectl get service -n "${NAMESPACE}" -l app=redis -o jsonpath='{.items[0].spec.clusterIP}' 2>/dev/null)
+    local redis_host=$(kubectl get service -n "${NAMESPACE}" -l "${LABEL_REDIS}" -o jsonpath='{.items[0].spec.clusterIP}' 2>/dev/null)
 
     if [ -z "$redis_host" ]; then
         warn "Could not determine Redis host"
@@ -126,7 +144,7 @@ test_redis_connection() {
     fi
 
     # Try to ping Redis
-    if kubectl run redis-test --rm -i --restart=Never --image=redis:7-alpine -n "${NAMESPACE}" -- redis-cli -h "$redis_host" ping 2>/dev/null | grep -q PONG; then
+    if kubectl run redis-test --rm -i --restart=Never --image="${REDIS_IMAGE}" -n "${NAMESPACE}" -- redis-cli -h "$redis_host" ping 2>/dev/null | grep -q PONG; then
         log "Redis connection successful"
         return 0
     else
@@ -139,7 +157,7 @@ test_redis_connection() {
 test_http_endpoint() {
     echo "Test 6: Checking HTTP endpoint accessibility..."
 
-    local service_name=$(kubectl get service -n "${NAMESPACE}" -l app.kubernetes.io/name=odoo -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    local service_name=$(kubectl get service -n "${NAMESPACE}" -l "${LABEL_ODOO}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
 
     if [ -z "$service_name" ]; then
         error "Could not find Odoo service"
@@ -149,11 +167,11 @@ test_http_endpoint() {
     local service_port=$(kubectl get service -n "${NAMESPACE}" "$service_name" -o jsonpath='{.spec.ports[0].port}')
 
     # Port-forward and test HTTP endpoint
-    kubectl port-forward -n "${NAMESPACE}" "service/$service_name" 8069:${service_port} &
+    kubectl port-forward -n "${NAMESPACE}" "service/$service_name" "${ODOO_PORT}:${service_port}" &
     local pf_pid=$!
-    sleep 3
+    sleep "${PORT_FORWARD_DELAY}"
 
-    if curl -s -o /dev/null -w "%{http_code}" http://localhost:8069 | grep -qE "^(200|302|303)$"; then
+    if curl -s -o /dev/null -w "%{http_code}" "http://localhost:${ODOO_PORT}" | grep -qE "^(${HTTP_SUCCESS_CODES})$"; then
         log "HTTP endpoint is accessible"
         kill $pf_pid 2>/dev/null || true
         return 0

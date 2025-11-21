@@ -7,6 +7,13 @@ setup() {
     SCRIPT_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
     DEPLOY_SCRIPT="${SCRIPT_DIR}/deploy.sh"
 
+    # Load test configuration
+    CONFIG_FILE="${SCRIPT_DIR}/../config/test-variables.sh"
+    if [ -f "${CONFIG_FILE}" ]; then
+        # shellcheck source=../../config/test-variables.sh
+        source "${CONFIG_FILE}"
+    fi
+
     # Mock helm and kubectl for testing
     export PATH="${BATS_TEST_DIRNAME}/mocks:${PATH}"
 }

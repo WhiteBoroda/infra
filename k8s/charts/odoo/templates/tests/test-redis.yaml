@@ -11,7 +11,7 @@ metadata:
 spec:
   containers:
     - name: redis-test
-      image: redis:7-alpine
+      image: {{ .Values.tests.images.redis | default "redis:7-alpine" }}
       env:
         - name: REDIS_HOST
           value: {{ .Values.redis.host | quote }}
