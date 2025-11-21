@@ -1,0 +1,36 @@
+---
+# Molecule verification playbook for gitlab role
+- name: Verify
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: Check if GitLab is installed
+      ansible.builtin.command: gitlab-rake gitlab:env:info
+      register: gitlab_info
+      changed_when: false
+      failed_when: gitlab_info.rc != 0
+      ignore_errors: true
+
+    - name: Check GitLab configuration file
+      ansible.builtin.stat:
+        path: /etc/gitlab/gitlab.rb
+      register: gitlab_config
+      failed_when: not gitlab_config.stat.exists
+
+    - name: Verify GitLab configuration exists
+      ansible.builtin.assert:
+        that:
+          - gitlab_config.stat.exists
+        fail_msg: "GitLab configuration file not found"
+        success_msg: "GitLab configuration file exists"
+
+    - name: Check GitLab services
+      ansible.builtin.command: gitlab-ctl status
+      register: gitlab_services
+      changed_when: false
+      ignore_errors: true
+
+    - name: Display GitLab services status
+      ansible.builtin.debug:
+        msg: "{{ gitlab_services.stdout_lines }}"
+      when: gitlab_services.rc == 0

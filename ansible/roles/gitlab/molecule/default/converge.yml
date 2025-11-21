@@ -1,0 +1,9 @@
+---
+# Molecule playbook for testing gitlab role
+- name: Converge
+  hosts: all
+  become: true
+  tasks:
+    - name: Include gitlab role
+      ansible.builtin.include_role:
+        name: gitlab
