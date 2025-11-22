@@ -268,3 +268,15 @@ initContainers:
         value: postgres-postgresql.odoo.svc.cluster.local
       - name: DB_PORT
         value: "5432"
+
+# Test configuration
+tests:
+  # Images for test pods
+  images:
+    busybox: busybox:latest
+    postgres: postgres:15
+    redis: redis:7-alpine
+  # Test timeouts and retries
+  timeout: 300
+  retries: 3
+  sleep: 2

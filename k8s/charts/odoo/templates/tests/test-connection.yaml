@@ -10,7 +10,7 @@ metadata:
 spec:
   containers:
     - name: wget
-      image: busybox
+      image: {{ .Values.tests.images.busybox | default "busybox:latest" }}
       command: ['wget']
       args: ['{{ include "odoo.fullname" . }}:{{ .Values.service.port }}']
   restartPolicy: Never
