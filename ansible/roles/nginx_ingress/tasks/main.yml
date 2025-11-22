@@ -27,17 +27,6 @@
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
-- name: Wait for cert-manager to be ready
-  shell: |
-    kubectl wait --namespace cert-manager --for=condition=available --timeout=180s deployment/cert-manager
-    kubectl wait --namespace cert-manager --for=condition=available --timeout=180s deployment/cert-manager-webhook
-    kubectl wait --namespace cert-manager --for=condition=available --timeout=180s deployment/cert-manager-cainjector
-  environment:
-    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
- 
-- name: Wait for cert-manager webhook to be ready
-  shell: sleep 10
- 
 - name: Install NGINX Ingress Controller
   shell: |
     helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
