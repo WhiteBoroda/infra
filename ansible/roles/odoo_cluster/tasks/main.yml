@@ -84,6 +84,25 @@
 - name: Deploy Odoo Web/Sales cluster
   shell: |
     kubectl apply -n odoo -f - <<EOF
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: odoo-config
+    data:
+      odoo.conf: |
+        [options]
+        db_host = postgres-postgresql.odoo.svc.cluster.local
+        db_port = 5432
+        db_user = odoo
+        db_password = odoo123
+        list_db = True
+        session_store = redis
+        redis_host = redis-master.odoo.svc.cluster.local
+        redis_port = 6379
+        limit_memory_hard = 2684354560
+        limit_time_cpu = 600
+        limit_time_real = 1200
+    ---
     apiVersion: apps/v1
     kind: Deployment
     metadata:
@@ -108,17 +127,18 @@
             image: odoo:17
             ports:
               - containerPort: 8069
-            env:
-              - name: HOST
-                value: postgres-postgresql.odoo.svc.cluster.local
-              - name: USER
-                value: odoo
-              - name: PASSWORD
-                value: odoo123
-              - name: PORT
-                value: "5432"
-              - name: SERVER_WIDE_MODULES
-                value: "web,sale,purchase,crm,website"
+            volumeMounts:
+              - name: odoo-config
+                mountPath: /etc/odoo
+                readOnly: true
+            command: ["/usr/bin/odoo"]
+            args:
+              - "--config=/etc/odoo/odoo.conf"
+              - "--load=web,sale,purchase,crm,website"
+          volumes:
+            - name: odoo-config
+              configMap:
+                name: odoo-config
     ---
     apiVersion: apps/v1
     kind: Deployment
@@ -144,17 +164,18 @@
             image: odoo:17
             ports:
               - containerPort: 8069
-            env:
-              - name: HOST
-                value: postgres-postgresql.odoo.svc.cluster.local
-              - name: USER
-                value: odoo
-              - name: PASSWORD
-                value: odoo123
-              - name: PORT
-                value: "5432"
-              - name: SERVER_WIDE_MODULES
-                value: "account,account_accountant,account_invoicing"
+            volumeMounts:
+              - name: odoo-config
+                mountPath: /etc/odoo
+                readOnly: true
+            command: ["/usr/bin/odoo"]
+            args:
+              - "--config=/etc/odoo/odoo.conf"
+              - "--load=account,account_accountant,account_invoicing"
+          volumes:
+            - name: odoo-config
+              configMap:
+                name: odoo-config
     ---
     apiVersion: apps/v1
     kind: Deployment
@@ -180,17 +201,18 @@
             image: odoo:17
             ports:
               - containerPort: 8069
-            env:
-              - name: HOST
-                value: postgres-postgresql.odoo.svc.cluster.local
-              - name: USER
-                value: odoo
-              - name: PASSWORD
-                value: odoo123
-              - name: PORT
-                value: "5432"
-              - name: SERVER_WIDE_MODULES
-                value: "stock,mrp,purchase_stock"
+            volumeMounts:
+              - name: odoo-config
+                mountPath: /etc/odoo
+                readOnly: true
+            command: ["/usr/bin/odoo"]
+            args:
+              - "--config=/etc/odoo/odoo.conf"
+              - "--load=stock,mrp,purchase_stock"
+          volumes:
+            - name: odoo-config
+              configMap:
+                name: odoo-config
     ---
     apiVersion: v1
     kind: Service

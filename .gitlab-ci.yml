@@ -61,7 +61,43 @@ lint:ansible:
   image: cytopia/ansible-lint:latest
   script:
     - ansible-lint ansible/
-  allow_failure: true
+  only:
+    - merge_requests
+    - main
+  tags:
+    - docker
+
+lint:terraform:
+  stage: lint
+  image: hashicorp/terraform:latest
+  script:
+    - cd terraform
+    - terraform init -backend=false
+    - terraform validate
+    - terraform fmt -check
+  only:
+    - merge_requests
+    - main
+  tags:
+    - docker
+
+lint:shellcheck:
+  stage: lint
+  image: koalaman/shellcheck-alpine:latest
+  script:
+    - shellcheck scripts/*.sh
+  only:
+    - merge_requests
+    - main
+  tags:
+    - docker
+
+test:bats:
+  stage: test
+  image: bats/bats:latest
+  script:
+    - cd scripts
+    - bats tests/
   only:
     - merge_requests
     - main
@@ -161,6 +197,47 @@ test:integration:
   tags:
     - kubernetes
 
+test:container-structure:
+  stage: test
+  image: gcr.io/gcp-runtimes/container-structure-test:latest
+  script:
+    - |
+      if [ -d "custom_modules" ]; then
+        container-structure-test test --image $CI_REGISTRY_IMAGE/odoo:$CI_COMMIT_SHORT_SHA --config docker/tests/container-structure-test.yaml
+      else
+        echo "Skipping container structure test - using official image"
+      fi
+  only:
+    - main
+    - develop
+  tags:
+    - docker
+  allow_failure: true
+
+test:helm-tests:
+  stage: test
+  image: alpine/helm:${HELM_VERSION}
+  before_script:
+    - *kubectl_config
+    - *helm_install
+  script:
+    - kubectl create namespace test-helm --dry-run=client -o yaml | kubectl apply -f -
+    - |
+      helm upgrade --install odoo-test k8s/charts/odoo/ \
+        -f k8s/overlays/dev/values.yaml \
+        --namespace test-helm \
+        --wait --timeout 5m
+    - helm test odoo-test --namespace test-helm --logs
+  after_script:
+    - helm uninstall odoo-test --namespace test-helm || true
+    - kubectl delete namespace test-helm --ignore-not-found=true
+  only:
+    - merge_requests
+    - main
+  tags:
+    - kubernetes
+  allow_failure: true
+
 # ============================================
 # SECURITY STAGE
 # ============================================
@@ -226,6 +303,22 @@ deploy:dev:
   tags:
     - kubernetes
 
+smoke-test:dev:
+  stage: deploy-dev
+  image: alpine/helm:${HELM_VERSION}
+  before_script:
+    - *kubectl_config
+    - apk add --no-cache bash curl
+  script:
+    - bash scripts/smoke-tests.sh ${K8S_NAMESPACE_DEV}
+  dependencies:
+    - deploy:dev
+  only:
+    - develop
+  tags:
+    - kubernetes
+  allow_failure: false
+
 stop:dev:
   stage: deploy-dev
   image: alpine/helm:${HELM_VERSION}
@@ -271,6 +364,23 @@ deploy:stage:
   tags:
     - kubernetes
 
+smoke-test:stage:
+  stage: deploy-stage
+  image: alpine/helm:${HELM_VERSION}
+  before_script:
+    - *kubectl_config
+    - apk add --no-cache bash curl
+  script:
+    - bash scripts/smoke-tests.sh ${K8S_NAMESPACE_STAGE}
+  dependencies:
+    - deploy:stage
+  only:
+    - main
+  tags:
+    - kubernetes
+  when: on_success
+  allow_failure: false
+
 stop:stage:
   stage: deploy-stage
   image: alpine/helm:${HELM_VERSION}
@@ -314,6 +424,23 @@ deploy:prod:
   when: manual
   tags:
     - kubernetes
+
+smoke-test:prod:
+  stage: deploy-prod
+  image: alpine/helm:${HELM_VERSION}
+  before_script:
+    - *kubectl_config
+    - apk add --no-cache bash curl
+  script:
+    - bash scripts/smoke-tests.sh ${K8S_NAMESPACE_PROD}
+  dependencies:
+    - deploy:prod
+  only:
+    - tags
+  tags:
+    - kubernetes
+  when: on_success
+  allow_failure: false
 
 # ============================================
 # PERFORMANCE TEST STAGE

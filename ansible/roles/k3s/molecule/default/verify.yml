@@ -1,0 +1,40 @@
+---
+# Molecule verification playbook for k3s role
+- name: Verify
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: Check if k3s binary exists
+      ansible.builtin.stat:
+        path: /usr/local/bin/k3s
+      register: k3s_binary
+      failed_when: not k3s_binary.stat.exists
+
+    - name: Check if k3s service is enabled
+      ansible.builtin.systemd:
+        name: k3s
+      register: k3s_service
+      check_mode: true
+
+    - name: Verify k3s service is enabled
+      ansible.builtin.assert:
+        that:
+          - k3s_service.status.UnitFileState == "enabled"
+        fail_msg: "k3s service is not enabled"
+        success_msg: "k3s service is properly enabled"
+
+    - name: Check kubectl binary
+      ansible.builtin.command: which kubectl
+      register: kubectl_check
+      changed_when: false
+      failed_when: kubectl_check.rc != 0
+
+    - name: Verify k3s version
+      ansible.builtin.command: k3s --version
+      register: k3s_version_output
+      changed_when: false
+      failed_when: k3s_version_output.rc != 0
+
+    - name: Display k3s version
+      ansible.builtin.debug:
+        msg: "K3s version: {{ k3s_version_output.stdout }}"
