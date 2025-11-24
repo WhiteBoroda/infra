@@ -9,9 +9,7 @@ image:
 
 odoo:
   database:
-    password: "dev123"
     name: odoo_dev
-  adminPassword: "admin"
   workers: 2
   logLevel: debug
 
@@ -36,8 +34,6 @@ modules:
 
 postgresql:
   enabled: true
-  auth:
-    password: "dev123"
   primary:
     persistence:
       enabled: false

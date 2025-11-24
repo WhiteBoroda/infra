@@ -68,6 +68,8 @@ logs/
 
 # Secrets
 secrets/
+k8s/overlays/*/values-secrets.yaml
+k8s/overlays/*/values-secrets.ci.yaml
 *.key
 *.pem
 *.crt

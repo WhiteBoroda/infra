@@ -156,12 +156,37 @@ kubectl get nodes
 
 ## 📚 Развертывание
 
+### Управление секретами Helm
+
+Каждое окружение (`k8s/overlays/<env>`) содержит файл `values-secrets.example.yaml`.
+
+1. Скопируйте его и заполните реальными значениями:
+   ```bash
+   cp k8s/overlays/dev/values-secrets.example.yaml k8s/overlays/dev/values-secrets.yaml
+   cp k8s/overlays/stage/values-secrets.example.yaml k8s/overlays/stage/values-secrets.yaml
+   cp k8s/overlays/prod/values-secrets.example.yaml k8s/overlays/prod/values-secrets.yaml
+   ```
+2. Внесите **только локально** пароли БД и администратора Odoo. Файлы `values-secrets.yaml` автоматически игнорируются `.gitignore`.
+3. Скрипты и CI/CD пайплайн автоматически подхватывают файл, если он существует.
+
+Для GitLab CI сохраните содержимое `values-secrets.yaml` в переменных:
+```
+DEV_VALUES_SECRETS_B64   - base64 от k8s/overlays/dev/values-secrets.yaml
+STAGE_VALUES_SECRETS_B64 - base64 от k8s/overlays/stage/values-secrets.yaml
+PROD_VALUES_SECRETS_B64  - base64 от k8s/overlays/prod/values-secrets.yaml
+```
+Получить base64:
+```bash
+cat k8s/overlays/dev/values-secrets.yaml | base64 -w 0
+```
+
 ### Развертывание Odoo через Helm
 
 #### Development окружение
 ```bash
 helm install odoo-dev k8s/charts/odoo/ \
   -f k8s/overlays/dev/values.yaml \
+  -f k8s/overlays/dev/values-secrets.yaml \
   --namespace odoo-dev \
   --create-namespace
 ```
@@ -170,17 +195,19 @@ helm install odoo-dev k8s/charts/odoo/ \
 ```bash
 helm install odoo-stage k8s/charts/odoo/ \
   -f k8s/overlays/stage/values.yaml \
+  -f k8s/overlays/stage/values-secrets.yaml \
   --namespace odoo-stage \
   --create-namespace
 ```
 
 #### Production окружение
 ```bash
-# ВАЖНО: Перед деплоем в прод измените пароли!
-vim k8s/overlays/prod/values.yaml
+# ВАЖНО: Перед деплоем заполните secrets-файл!
+vim k8s/overlays/prod/values-secrets.yaml
 
 helm install odoo-prod k8s/charts/odoo/ \
   -f k8s/overlays/prod/values.yaml \
+  -f k8s/overlays/prod/values-secrets.yaml \
   --namespace odoo-prod \
   --create-namespace
 ```
@@ -189,6 +216,7 @@ helm install odoo-prod k8s/charts/odoo/ \
 ```bash
 helm upgrade odoo-prod k8s/charts/odoo/ \
   -f k8s/overlays/prod/values.yaml \
+  -f k8s/overlays/prod/values-secrets.yaml \
   --namespace odoo-prod
 ```
 
@@ -226,6 +254,9 @@ KUBECONFIG_CONTENT      - base64 encoded kubeconfig
 CI_REGISTRY             - registry.gitlab.com/yourgroup/project
 CI_REGISTRY_USER        - gitlab-ci-token
 CI_REGISTRY_PASSWORD    - (auto from GitLab)
+DEV_VALUES_SECRETS_B64   - base64 от k8s/overlays/dev/values-secrets.yaml
+STAGE_VALUES_SECRETS_B64 - base64 от k8s/overlays/stage/values-secrets.yaml
+PROD_VALUES_SECRETS_B64  - base64 от k8s/overlays/prod/values-secrets.yaml
 ```
 
 #### 2. Регистрация GitLab Runner

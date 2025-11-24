@@ -31,12 +31,15 @@
 
 - name: Wait for pods to terminate
   shell: |
-    for i in {1..30}; do
+    i=0
+    max_attempts=30
+    while [ $i -lt $max_attempts ]; do
       if [ $(kubectl get pods -n odoo --no-headers 2>/dev/null | grep -v "Running\|Completed" | wc -l) -eq 0 ]; then
         echo "All pods terminated"
         exit 0
       fi
-      echo "Waiting for pods to terminate... ($i/30)"
+      i=$((i + 1))
+      echo "Waiting for pods to terminate... ($i/$max_attempts)"
       sleep 2
     done
   environment:
@@ -45,8 +48,8 @@
 
 - name: Deploy PostgreSQL via Helm
   shell: |
-    helm repo add bitnami https://charts.bitnami.com/bitnami
-    helm install postgres bitnami/postgresql \
+    helm repo add bitnami https://charts.bitnami.com/bitnami || true
+    helm upgrade --install postgres bitnami/postgresql \
       --namespace odoo \
       --set auth.postgresPassword=postgres123 \
       --set auth.username=odoo \
@@ -55,11 +58,25 @@
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
-- name: Deploy Redis for cache
+- name: Wait for PostgreSQL to be ready
   shell: |
-    helm install redis bitnami/redis --namespace odoo --set architecture=standalone --set auth.enabled=false --set master.persistence.enabled=false
+    kubectl wait --namespace odoo --for=condition=ready pod -l app.kubernetes.io/name=postgresql --timeout=300s || true
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  failed_when: false
+
+- name: Deploy Redis for cache
+  shell: |
+    helm upgrade --install redis bitnami/redis --namespace odoo --set architecture=standalone --set auth.enabled=false --set master.persistence.enabled=false
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for Redis to be ready
+  shell: |
+    kubectl wait --namespace odoo --for=condition=ready pod -l app.kubernetes.io/name=redis --timeout=300s || true
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  failed_when: false
 
 - name: Delete existing Odoo deployment if exists
   shell: |
@@ -70,12 +87,15 @@
 
 - name: Wait for Odoo pods to terminate
   shell: |
-    for i in {1..30}; do
+    i=0
+    max_attempts=30
+    while [ $i -lt $max_attempts ]; do
       if ! kubectl get pods -n odoo -l app=odoo --no-headers 2>/dev/null | grep -q .; then
         echo "Odoo pods terminated"
         exit 0
       fi
-      echo "Waiting for Odoo pods to terminate... ($i/30)"
+      i=$((i + 1))
+      echo "Waiting for Odoo pods to terminate... ($i/$max_attempts)"
       sleep 2
     done
   environment:
@@ -96,12 +116,14 @@
         db_user = odoo
         db_password = odoo123
         list_db = True
+        proxy_mode = True
         session_store = redis
         redis_host = redis-master.odoo.svc.cluster.local
         redis_port = 6379
         limit_memory_hard = 2684354560
         limit_time_cpu = 600
         limit_time_real = 1200
+        workers = 2
     ---
     apiVersion: apps/v1
     kind: Deployment
@@ -135,6 +157,20 @@
             args:
               - "--config=/etc/odoo/odoo.conf"
               - "--load=web,sale,purchase,crm,website"
+            readinessProbe:
+              httpGet:
+                path: /web/health
+                port: 8069
+              initialDelaySeconds: 60
+              periodSeconds: 10
+              timeoutSeconds: 5
+            livenessProbe:
+              httpGet:
+                path: /web/health
+                port: 8069
+              initialDelaySeconds: 120
+              periodSeconds: 30
+              timeoutSeconds: 10
           volumes:
             - name: odoo-config
               configMap:
@@ -172,6 +208,20 @@
             args:
               - "--config=/etc/odoo/odoo.conf"
               - "--load=account,account_accountant,account_invoicing"
+            readinessProbe:
+              httpGet:
+                path: /web/health
+                port: 8069
+              initialDelaySeconds: 60
+              periodSeconds: 10
+              timeoutSeconds: 5
+            livenessProbe:
+              httpGet:
+                path: /web/health
+                port: 8069
+              initialDelaySeconds: 120
+              periodSeconds: 30
+              timeoutSeconds: 10
           volumes:
             - name: odoo-config
               configMap:
@@ -209,6 +259,20 @@
             args:
               - "--config=/etc/odoo/odoo.conf"
               - "--load=stock,mrp,purchase_stock"
+            readinessProbe:
+              httpGet:
+                path: /web/health
+                port: 8069
+              initialDelaySeconds: 60
+              periodSeconds: 10
+              timeoutSeconds: 5
+            livenessProbe:
+              httpGet:
+                path: /web/health
+                port: 8069
+              initialDelaySeconds: 120
+              periodSeconds: 30
+              timeoutSeconds: 10
           volumes:
             - name: odoo-config
               configMap:
@@ -225,7 +289,7 @@
       - name: web
         port: 8069
         targetPort: 8069
-      type: LoadBalancer
+      type: ClusterIP
     ---
     apiVersion: v1
     kind: Service
@@ -265,6 +329,46 @@
       - name: web
         port: 8069
         targetPort: 8069
+    EOF
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for Odoo pods to be ready
+  shell: |
+    kubectl wait --namespace odoo --for=condition=ready pod -l app=odoo --timeout=600s || true
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  failed_when: false
+
+- name: Configure Ingress for Odoo
+  shell: |
+    kubectl apply -n odoo -f - <<EOF
+    apiVersion: networking.k8s.io/v1
+    kind: Ingress
+    metadata:
+      name: odoo-ingress
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt-staging
+        nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+        nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+        nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    spec:
+      ingressClassName: nginx
+      tls:
+      - hosts:
+        - odoo.local
+        secretName: odoo-tls
+      rules:
+      - host: odoo.local
+        http:
+          paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: odoo
+                port:
+                  number: 8069
     EOF
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml

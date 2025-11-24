@@ -8,15 +8,99 @@
     msg: "GitLab runner registration token is not set. Please set 'gitlab_runner_token' variable in group_vars/all.yml or pass it via --extra-vars"
   when: gitlab_runner_token is not defined or gitlab_runner_token == ""
 
-- name: Register GitLab runner
+- name: Test connectivity to GitLab
+  uri:
+    url: "http://{{ gitlab_ip }}"
+    method: GET
+    status_code: [200, 301, 302]
+    timeout: 10
+  register: gitlab_connectivity
+  ignore_errors: yes
+
+- name: Fail if GitLab is not reachable
+  fail:
+    msg: "Cannot reach GitLab at http://{{ gitlab_ip }}. Please check network connectivity and GitLab status."
+  when: gitlab_connectivity.failed
+
+- name: Check if runner is already registered
+  stat:
+    path: /etc/gitlab-runner/config.toml
+  register: runner_config
+
+- name: Unregister existing runner if exists
+  shell: |
+    gitlab-runner unregister --all-runners || true
+  when: runner_config.stat.exists
+  ignore_errors: yes
+
+- name: Determine token type and register GitLab runner (new format - authentication token)
+  shell: |
+    gitlab-runner register --non-interactive \
+      --url "http://{{ gitlab_ip }}" \
+      --token "{{ gitlab_runner_token }}" \
+      --executor "docker" \
+      --description "k3s-runner-{{ inventory_hostname }}" \
+      --tag-list "docker,kubernetes" \
+      --docker-image "docker:latest" \
+      --docker-privileged \
+      --docker-volumes "/var/run/docker.sock:/var/run/docker.sock"
+  when: gitlab_runner_token is defined and gitlab_runner_token.startswith('glrt-')
+  args:
+    creates: /etc/gitlab-runner/config.toml
+  ignore_errors: yes
+  register: register_result_new
+
+- name: Register GitLab runner (old format - registration token)
   shell: |
     gitlab-runner register --non-interactive \
       --url "http://{{ gitlab_ip }}" \
       --registration-token "{{ gitlab_runner_token }}" \
       --executor "docker" \
-      --description "k3s-runner" \
+      --description "k3s-runner-{{ inventory_hostname }}" \
+      --tag-list "docker,kubernetes" \
       --docker-image "docker:latest" \
-      --docker-privileged
+      --docker-privileged \
+      --docker-volumes "/var/run/docker.sock:/var/run/docker.sock"
+  when: gitlab_runner_token is defined and not gitlab_runner_token.startswith('glrt-')
   args:
     creates: /etc/gitlab-runner/config.toml
   ignore_errors: yes
+  register: register_result_old
+
+- name: Check registration result
+  fail:
+    msg: |
+      Runner registration failed!
+      Token type: {{ 'New format (authentication token)' if gitlab_runner_token.startswith('glrt-') else 'Old format (registration token)' }}
+      Error output: {{ register_result_new.stderr | default(register_result_old.stderr | default('Unknown error')) }}
+      Please check:
+      1. Token is correct and not expired
+      2. GitLab is accessible from this host
+      3. Runner version is compatible with GitLab version
+  when: (register_result_new.failed | default(false)) or (register_result_old.failed | default(false))
+
+- name: Verify runner registration
+  shell: |
+    gitlab-runner verify
+  ignore_errors: yes
+  register: verify_result
+
+- name: Show registration status
+  debug:
+    msg: |
+      Runner registration completed successfully!
+      Token type: {{ 'New format (authentication token)' if gitlab_runner_token.startswith('glrt-') else 'Old format (registration token)' }}
+      Runner description: k3s-runner-{{ inventory_hostname }}
+      Tags: docker,kubernetes
+      
+      Next steps:
+      1. Check status: sudo gitlab-runner status
+      2. View config: sudo cat /etc/gitlab-runner/config.toml
+      3. Verify in GitLab UI: Admin Area → CI/CD → Runners
+      4. Check logs: sudo journalctl -u gitlab-runner -f
+
+- name: Start and enable GitLab Runner service
+  systemd:
+    name: gitlab-runner
+    state: started
+    enabled: yes

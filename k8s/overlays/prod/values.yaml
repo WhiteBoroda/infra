@@ -9,10 +9,8 @@ image:
 
 odoo:
   database:
-    password: "CHANGE_ME_PRODUCTION_PASSWORD"
     name: odoo_prod
     maxconn: 128
-  adminPassword: "CHANGE_ME_PRODUCTION_ADMIN"
   workers: 8
   maxCronThreads: 4
   logLevel: warn
@@ -64,8 +62,6 @@ modules:
 
 postgresql:
   enabled: true
-  auth:
-    password: "CHANGE_ME_PRODUCTION_PASSWORD"
   primary:
     persistence:
       enabled: true

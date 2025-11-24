@@ -5,16 +5,17 @@
 
 - name: Add Helm repo for Prometheus and Grafana
   shell: |
-    helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-    helm repo add grafana https://grafana.github.io/helm-charts
+    helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || true
+    helm repo add grafana https://grafana.github.io/helm-charts || true
     helm repo update
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
 - name: Install Prometheus stack
   shell: |
-    helm install prometheus prometheus-community/kube-prometheus-stack \
+    helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
       --namespace monitoring \
+      --create-namespace \
       --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
       --set grafana.enabled=false
   environment:
@@ -22,8 +23,9 @@
 
 - name: Install Grafana
   shell: |
-    helm install grafana grafana/grafana \
+    helm upgrade --install grafana grafana/grafana \
       --namespace monitoring \
+      --create-namespace \
       --set adminUser={{ grafana_admin_user }} \
       --set adminPassword={{ grafana_admin_password }} \
       --set service.type=LoadBalancer \
@@ -37,14 +39,81 @@
   copy:
     src: files/dashboards/
     dest: /tmp/grafana_dashboards/
+  ignore_errors: yes
+
+- name: Wait for Grafana pod to be ready
+  shell: |
+    kubectl wait --namespace monitoring --for=condition=ready pod -l app.kubernetes.io/name=grafana --timeout=300s || true
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  failed_when: false
+
+- name: Wait for Grafana service to be accessible
+  shell: |
+    i=0
+    max_attempts=60
+    while [ $i -lt $max_attempts ]; do
+      if curl -s -f -u {{ grafana_admin_user }}:{{ grafana_admin_password }} http://{{ grafana_loadbalancer_ip }}:3000/api/health >/dev/null 2>&1; then
+        echo "Grafana is ready and accessible"
+        exit 0
+      fi
+      i=$((i + 1))
+      echo "Waiting for Grafana to be accessible... ($i/$max_attempts)"
+      sleep 5
+    done
+    echo "Warning: Grafana LoadBalancer not accessible yet, but pod is ready"
+    echo "Dashboard import will be skipped or retried later"
+    exit 0
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  failed_when: false
 
 - name: Import dashboards into Grafana
   shell: |
-    for f in /tmp/grafana_dashboards/*.json; do
-      curl -X POST http://{{ grafana_admin_user }}:{{ grafana_admin_password }}@{{ grafana_loadbalancer_ip }}:3000/api/dashboards/db \
-        -H "Content-Type: application/json" \
-        -d @"$f";
+    if [ ! -d /tmp/grafana_dashboards ] || [ -z "$(ls -A /tmp/grafana_dashboards/*.json 2>/dev/null)" ]; then
+      echo "No dashboards to import"
+      exit 0
+    fi
+    
+    # Try to connect to Grafana via LoadBalancer
+    GRAFANA_URL="http://{{ grafana_loadbalancer_ip }}:3000"
+    i=0
+    max_attempts=30
+    while [ $i -lt $max_attempts ]; do
+      if curl -s -f -u {{ grafana_admin_user }}:{{ grafana_admin_password }} $GRAFANA_URL/api/health >/dev/null 2>&1; then
+        echo "Grafana is accessible, proceeding with dashboard import"
+        break
+      fi
+      i=$((i + 1))
+      if [ $i -eq $max_attempts ]; then
+        echo "Warning: Could not connect to Grafana after $max_attempts attempts, skipping dashboard import"
+        echo "Dashboards can be imported manually later via Grafana UI"
+        exit 0
+      fi
+      echo "Waiting for Grafana to be accessible... ($i/$max_attempts)"
+      sleep 2
     done
+    
+    for f in /tmp/grafana_dashboards/*.json; do
+      if [ ! -f "$f" ]; then
+        continue
+      fi
+      echo "Importing dashboard: $f"
+      response=$(curl -s -w "\n%{http_code}" -X POST \
+        -u {{ grafana_admin_user }}:{{ grafana_admin_password }} \
+        -H "Content-Type: application/json" \
+        -d @"$f" \
+        $GRAFANA_URL/api/dashboards/db)
+      http_code=$(echo "$response" | tail -n1)
+      if [ "$http_code" = "200" ] || [ "$http_code" = "201" ] || [ "$http_code" = "412" ]; then
+        echo "Dashboard imported successfully (HTTP $http_code)"
+      else
+        echo "Warning: Failed to import dashboard (HTTP $http_code), continuing..."
+      fi
+    done
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  failed_when: false
 
 - name: Expose Grafana dashboard via Ingress
   shell: |

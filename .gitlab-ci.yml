@@ -185,10 +185,26 @@ test:integration:
     - *kubectl_config
     - *helm_install
   script:
-    - kubectl create namespace test-odoo --dry-run=client -o yaml | kubectl apply -f -
-    - helm template odoo k8s/charts/odoo/ -f k8s/overlays/dev/values.yaml --namespace test-odoo > /tmp/manifest.yaml
-    - kubectl apply -f /tmp/manifest.yaml --dry-run=client
-    - echo "Manifest validation successful"
+    - |
+      set -e
+      kubectl create namespace test-odoo --dry-run=client -o yaml | kubectl apply -f -
+
+      SECRET_VALUES_FILE_PATH=""
+      if [ -n "$DEV_VALUES_SECRETS_B64" ]; then
+        echo "$DEV_VALUES_SECRETS_B64" | base64 -d > k8s/overlays/dev/values-secrets.ci.yaml
+        SECRET_VALUES_FILE_PATH="k8s/overlays/dev/values-secrets.ci.yaml"
+      elif [ -f k8s/overlays/dev/values-secrets.yaml ]; then
+        SECRET_VALUES_FILE_PATH="k8s/overlays/dev/values-secrets.yaml"
+      fi
+
+      VALUES_ARGS="-f k8s/overlays/dev/values.yaml"
+      if [ -n "$SECRET_VALUES_FILE_PATH" ]; then
+        VALUES_ARGS="$VALUES_ARGS -f $SECRET_VALUES_FILE_PATH"
+      fi
+
+      helm template odoo k8s/charts/odoo/ $VALUES_ARGS --namespace test-odoo > /tmp/manifest.yaml
+      kubectl apply -f /tmp/manifest.yaml --dry-run=client
+      echo "Manifest validation successful"
   after_script:
     - kubectl delete namespace test-odoo --ignore-not-found=true
   only:
@@ -221,13 +237,28 @@ test:helm-tests:
     - *kubectl_config
     - *helm_install
   script:
-    - kubectl create namespace test-helm --dry-run=client -o yaml | kubectl apply -f -
     - |
+      set -e
+      kubectl create namespace test-helm --dry-run=client -o yaml | kubectl apply -f -
+
+      SECRET_VALUES_FILE_PATH=""
+      if [ -n "$DEV_VALUES_SECRETS_B64" ]; then
+        echo "$DEV_VALUES_SECRETS_B64" | base64 -d > k8s/overlays/dev/values-secrets.ci.yaml
+        SECRET_VALUES_FILE_PATH="k8s/overlays/dev/values-secrets.ci.yaml"
+      elif [ -f k8s/overlays/dev/values-secrets.yaml ]; then
+        SECRET_VALUES_FILE_PATH="k8s/overlays/dev/values-secrets.yaml"
+      fi
+
+      VALUES_ARGS="-f k8s/overlays/dev/values.yaml"
+      if [ -n "$SECRET_VALUES_FILE_PATH" ]; then
+        VALUES_ARGS="$VALUES_ARGS -f $SECRET_VALUES_FILE_PATH"
+      fi
+
       helm upgrade --install odoo-test k8s/charts/odoo/ \
-        -f k8s/overlays/dev/values.yaml \
+        $VALUES_ARGS \
         --namespace test-helm \
         --wait --timeout 5m
-    - helm test odoo-test --namespace test-helm --logs
+      helm test odoo-test --namespace test-helm --logs
   after_script:
     - helm uninstall odoo-test --namespace test-helm || true
     - kubectl delete namespace test-helm --ignore-not-found=true
@@ -286,14 +317,29 @@ deploy:dev:
     - *kubectl_config
     - *helm_install
   script:
-    - kubectl create namespace ${K8S_NAMESPACE_DEV} --dry-run=client -o yaml | kubectl apply -f -
     - |
+      set -e
+      kubectl create namespace ${K8S_NAMESPACE_DEV} --dry-run=client -o yaml | kubectl apply -f -
+
+      SECRET_VALUES_FILE_PATH=""
+      if [ -n "$DEV_VALUES_SECRETS_B64" ]; then
+        echo "$DEV_VALUES_SECRETS_B64" | base64 -d > k8s/overlays/dev/values-secrets.ci.yaml
+        SECRET_VALUES_FILE_PATH="k8s/overlays/dev/values-secrets.ci.yaml"
+      elif [ -f k8s/overlays/dev/values-secrets.yaml ]; then
+        SECRET_VALUES_FILE_PATH="k8s/overlays/dev/values-secrets.yaml"
+      fi
+
+      VALUES_ARGS="-f k8s/overlays/dev/values.yaml"
+      if [ -n "$SECRET_VALUES_FILE_PATH" ]; then
+        VALUES_ARGS="$VALUES_ARGS -f $SECRET_VALUES_FILE_PATH"
+      fi
+
       helm upgrade --install odoo-dev k8s/charts/odoo/ \
-        -f k8s/overlays/dev/values.yaml \
+        $VALUES_ARGS \
         --namespace ${K8S_NAMESPACE_DEV} \
         --set image.tag=${CI_COMMIT_SHORT_SHA} \
         --wait --timeout 10m
-    - kubectl rollout status deployment -n ${K8S_NAMESPACE_DEV} -l app.kubernetes.io/name=odoo
+      kubectl rollout status deployment -n ${K8S_NAMESPACE_DEV} -l app.kubernetes.io/name=odoo
   environment:
     name: development
     url: https://odoo-dev.local
@@ -346,14 +392,29 @@ deploy:stage:
     - *kubectl_config
     - *helm_install
   script:
-    - kubectl create namespace ${K8S_NAMESPACE_STAGE} --dry-run=client -o yaml | kubectl apply -f -
     - |
+      set -e
+      kubectl create namespace ${K8S_NAMESPACE_STAGE} --dry-run=client -o yaml | kubectl apply -f -
+
+      SECRET_VALUES_FILE_PATH=""
+      if [ -n "$STAGE_VALUES_SECRETS_B64" ]; then
+        echo "$STAGE_VALUES_SECRETS_B64" | base64 -d > k8s/overlays/stage/values-secrets.ci.yaml
+        SECRET_VALUES_FILE_PATH="k8s/overlays/stage/values-secrets.ci.yaml"
+      elif [ -f k8s/overlays/stage/values-secrets.yaml ]; then
+        SECRET_VALUES_FILE_PATH="k8s/overlays/stage/values-secrets.yaml"
+      fi
+
+      VALUES_ARGS="-f k8s/overlays/stage/values.yaml"
+      if [ -n "$SECRET_VALUES_FILE_PATH" ]; then
+        VALUES_ARGS="$VALUES_ARGS -f $SECRET_VALUES_FILE_PATH"
+      fi
+
       helm upgrade --install odoo-stage k8s/charts/odoo/ \
-        -f k8s/overlays/stage/values.yaml \
+        $VALUES_ARGS \
         --namespace ${K8S_NAMESPACE_STAGE} \
         --set image.tag=${CI_COMMIT_SHORT_SHA} \
         --wait --timeout 15m
-    - kubectl rollout status deployment -n ${K8S_NAMESPACE_STAGE} -l app.kubernetes.io/name=odoo
+      kubectl rollout status deployment -n ${K8S_NAMESPACE_STAGE} -l app.kubernetes.io/name=odoo
   environment:
     name: staging
     url: https://odoo-stage.local
@@ -408,14 +469,29 @@ deploy:prod:
     - *kubectl_config
     - *helm_install
   script:
-    - kubectl create namespace ${K8S_NAMESPACE_PROD} --dry-run=client -o yaml | kubectl apply -f -
     - |
+      set -e
+      kubectl create namespace ${K8S_NAMESPACE_PROD} --dry-run=client -o yaml | kubectl apply -f -
+
+      SECRET_VALUES_FILE_PATH=""
+      if [ -n "$PROD_VALUES_SECRETS_B64" ]; then
+        echo "$PROD_VALUES_SECRETS_B64" | base64 -d > k8s/overlays/prod/values-secrets.ci.yaml
+        SECRET_VALUES_FILE_PATH="k8s/overlays/prod/values-secrets.ci.yaml"
+      elif [ -f k8s/overlays/prod/values-secrets.yaml ]; then
+        SECRET_VALUES_FILE_PATH="k8s/overlays/prod/values-secrets.yaml"
+      fi
+
+      VALUES_ARGS="-f k8s/overlays/prod/values.yaml"
+      if [ -n "$SECRET_VALUES_FILE_PATH" ]; then
+        VALUES_ARGS="$VALUES_ARGS -f $SECRET_VALUES_FILE_PATH"
+      fi
+
       helm upgrade --install odoo-prod k8s/charts/odoo/ \
-        -f k8s/overlays/prod/values.yaml \
+        $VALUES_ARGS \
         --namespace ${K8S_NAMESPACE_PROD} \
         --set image.tag=${CI_COMMIT_TAG} \
         --wait --timeout 20m
-    - kubectl rollout status deployment -n ${K8S_NAMESPACE_PROD} -l app.kubernetes.io/name=odoo
+      kubectl rollout status deployment -n ${K8S_NAMESPACE_PROD} -l app.kubernetes.io/name=odoo
   environment:
     name: production
     url: https://odoo.yourdomain.com

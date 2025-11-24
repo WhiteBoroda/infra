@@ -1,9 +1,10 @@
 - name: Install MetalLB for LoadBalancer support
   shell: |
     kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.5/config/manifests/metallb-native.yaml
-    kubectl wait --namespace metallb-system --for=condition=available --timeout=90s deployment controller
+    kubectl wait --namespace metallb-system --for=condition=available --timeout=90s deployment controller --ignore-not-found=true || true
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  failed_when: false
 
 - name: Configure MetalLB address pool
   shell: |
@@ -29,9 +30,9 @@
 
 - name: Install NGINX Ingress Controller
   shell: |
-    helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+    helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx || true
     helm repo update
-    helm install nginx ingress-nginx/ingress-nginx \
+    helm upgrade --install nginx ingress-nginx/ingress-nginx \
       --namespace ingress-nginx \
       --create-namespace \
       --set controller.replicaCount=2 \
@@ -42,9 +43,10 @@
 
 - name: Install cert-manager for HTTPS
   shell: |
-    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.4/cert-manager.yaml
+    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.4/cert-manager.yaml || true
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  failed_when: false
 
 - name: Wait for cert-manager namespace to be created
   shell: |
@@ -88,36 +90,6 @@
         - http01:
             ingress:
               class: nginx
-    EOF
-  environment:
-    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-
-- name: Configure Ingress for Odoo
-  shell: |
-    kubectl apply -n odoo -f - <<EOF
-    apiVersion: networking.k8s.io/v1
-    kind: Ingress
-    metadata:
-      name: odoo-ingress
-      annotations:
-        kubernetes.io/ingress.class: nginx
-        cert-manager.io/cluster-issuer: letsencrypt-staging
-    spec:
-      tls:
-      - hosts:
-        - odoo.local
-        secretName: odoo-tls
-      rules:
-      - host: odoo.local
-        http:
-          paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: odoo
-                port:
-                  number: 8069
     EOF
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml

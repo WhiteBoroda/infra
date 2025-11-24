@@ -26,14 +26,14 @@ odoo:
     host: postgres-postgresql.odoo.svc.cluster.local
     port: 5432
     user: odoo
-    password: "changeme"
+    password: ""
     name: odoo
     maxconn: 64
     # Filter databases to show
     filter: ".*"
 
-  # Admin password (change in production!)
-  adminPassword: "admin"
+  # Admin password (must be provided via environment-specific values)
+  adminPassword: ""
 
   # Workers configuration
   workers: 4
@@ -109,7 +109,7 @@ postgresql:
   enabled: true
   auth:
     username: odoo
-    password: "changeme"
+    password: ""
     database: odoo
   primary:
     persistence:

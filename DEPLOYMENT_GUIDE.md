@@ -209,6 +209,18 @@ kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
 
 ### Шаг 5: Развертывание Odoo
 
+#### 5.0. Подготовка secrets-файлов
+
+Для каждого окружения есть шаблон `k8s/overlays/<env>/values-secrets.example.yaml`.
+
+```bash
+cp k8s/overlays/dev/values-secrets.example.yaml k8s/overlays/dev/values-secrets.yaml
+cp k8s/overlays/stage/values-secrets.example.yaml k8s/overlays/stage/values-secrets.yaml
+cp k8s/overlays/prod/values-secrets.example.yaml k8s/overlays/prod/values-secrets.yaml
+```
+
+Заполните пароль БД и администратора Odoo. Файлы `values-secrets.yaml` добавлены в `.gitignore`, поэтому не попадут в репозиторий.
+
 #### Development окружение
 ```bash
 # Создание namespace
@@ -217,6 +229,7 @@ kubectl create namespace odoo-dev
 # Деплой через Helm
 helm install odoo-dev k8s/charts/odoo/ \
   -f k8s/overlays/dev/values.yaml \
+  -f k8s/overlays/dev/values-secrets.yaml \
   --namespace odoo-dev \
   --wait \
   --timeout 15m
@@ -243,7 +256,7 @@ kubectl port-forward -n odoo-stage svc/odoo-stage 8070:8069
 #### Production окружение
 ```bash
 # ВАЖНО: Перед деплоем в прод!
-vim k8s/overlays/prod/values.yaml
+vim k8s/overlays/prod/values-secrets.yaml
 # Измените:
 # - odoo.database.password
 # - odoo.adminPassword
@@ -293,6 +306,14 @@ cat ~/.kube/config | base64
 # Value: <base64 string>
 # Protected: Yes
 # Masked: No
+
+# Получаем secrets в base64 (пример для dev)
+cat k8s/overlays/dev/values-secrets.yaml | base64 -w 0
+
+# Добавляем переменные:
+# DEV_VALUES_SECRETS_B64
+# STAGE_VALUES_SECRETS_B64
+# PROD_VALUES_SECRETS_B64
 ```
 
 #### 6.6. Регистрация Runner

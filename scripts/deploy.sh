@@ -127,6 +127,21 @@ if [[ ! -f "$VALUES_FILE" ]]; then
     error "Values file not found: $VALUES_FILE"
 fi
 
+# Optional secrets file handling
+SECRET_VALUES_FILE="k8s/overlays/${ENVIRONMENT}/values-secrets.yaml"
+if [[ -n "${HELM_VALUES_SECRETS_FILE:-}" ]]; then
+    log "Using custom secrets file: $HELM_VALUES_SECRETS_FILE"
+    SECRET_VALUES_FILE="$HELM_VALUES_SECRETS_FILE"
+fi
+
+VALUES_ARGS=(-f "$VALUES_FILE")
+if [[ -f "$SECRET_VALUES_FILE" ]]; then
+    log "Using secrets override: $SECRET_VALUES_FILE"
+    VALUES_ARGS+=(-f "$SECRET_VALUES_FILE")
+else
+    log "No values-secrets.yaml found for ${ENVIRONMENT}, expecting credentials to be provided externally"
+fi
+
 # Confirm production deployment
 if [[ "$ENVIRONMENT" == "prod" ]]; then
     warn "You are about to deploy to PRODUCTION!"
@@ -139,7 +154,7 @@ fi
 # Deploy with Helm
 log "Deploying with Helm..."
 helm upgrade --install "$RELEASE_NAME" k8s/charts/odoo/ \
-    -f "$VALUES_FILE" \
+    "${VALUES_ARGS[@]}" \
     --namespace "$NAMESPACE" \
     --set image.tag="$IMAGE_TAG" \
     --wait \

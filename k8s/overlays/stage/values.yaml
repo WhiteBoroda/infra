@@ -9,9 +9,7 @@ image:
 
 odoo:
   database:
-    password: "stage_secure_password_change_me"
     name: odoo_stage
-  adminPassword: "stage_admin_change_me"
   workers: 3
   logLevel: info
 
@@ -54,8 +52,6 @@ modules:
 
 postgresql:
   enabled: true
-  auth:
-    password: "stage_secure_password_change_me"
   primary:
     persistence:
       enabled: true
