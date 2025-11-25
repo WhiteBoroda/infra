@@ -1,3 +1,83 @@
+# config/variables.yaml
+# Centralізовані змінні для всього проекту
+
+# Project Configuration
+project:
+  name: "odoo-project"
+  company: "yourdomain"
+  
+# Registry Configuration
+registry:
+  url: "registry.gitlab.yourdomain.com"
+  namespace: "odoo-team"
+
+# Domain Configuration
+domains:
+  base: "yourdomain.com"
+  test: "test.yourdomain.com"
+  dev: "dev.yourdomain.com"
+  stage: "stage.yourdomain.com"
+  prod: "yourdomain.com"
+
+# Kubernetes Namespaces
+namespaces:
+  test: "odoo-test"
+  dev: "odoo-dev"
+  stage: "odoo-stage"
+  prod: "odoo-prod"
+  gitlab_runner: "gitlab-runner"
+  postgres_operator: "postgres-operator"
+
+# Docker Images
+images:
+  odoo:
+    base: "odoo"
+    version: "17.0"
+  postgres:
+    base: "postgres"
+    version: "15"
+  redis:
+    base: "redis"
+    version: "7-alpine"
+  pgbouncer:
+    base: "pgbouncer/pgbouncer"
+    version: "1.21.0"
+  patroni:
+    base: "patroni/patroni"
+    version: "3.2.2"
+  etcd:
+    base: "quay.io/coreos/etcd"
+    version: "v3.5.11"
+
+# Database Configuration
+database:
+  superuser: "postgres"
+  app_user: "odoo"
+  replication_user: "replicator"
+  names:
+    prod: "odoo_prod"
+    stage: "odoo_stage"
+    dev: "odoo_dev"
+    test: "odoo_test"
+  
+  # PostgreSQL Parameters
+  postgres:
+    max_connections: 300
+    shared_buffers: "2GB"
+    effective_cache_size: "6GB"
+    maintenance_work_mem: "512MB"
+    checkpoint_completion_target: 0.9
+    wal_buffers: "16MB"
+    work_mem: "10MB"
+    min_wal_size: "1GB"
+    max_wal_size: "4GB"
+    max_worker_processes: 4
+    max_parallel_workers: 4
+
+  # PgBouncer Configuration
+  pgbouncer:
+    port: 6432
+    max_client_conn: 1000
     default_pool_size: 25
     min_pool_size: 10
     reserve_pool_size: 5
@@ -199,7 +279,7 @@ health:
 # CI/CD Configuration
 cicd:
   gitlab:
-    url: "https://gitlab.hd.local"
+    url: "https://gitlab.yourdomain.com"
   
   docker:
     driver: "overlay2"
@@ -291,7 +371,7 @@ odoo_versions:
 # Теги образів
 images:
   odoo:
-    registry: "registry.gitlab.hd.local/odoo-team/odoo"
+    registry: "registry.gitlab.yourdomain.com/odoo-team/odoo"
     versions:
       "17.0":
         base_image: "odoo:17.0"
