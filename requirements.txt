@@ -1,0 +1,3 @@
+# requirements.txt
+redis==5.0.1
+hiredis==2.3.2  # Для кращої продуктивності Redis

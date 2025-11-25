@@ -1,0 +1,6 @@
+# docker/requirements-17.0.txt
+# Специфічні залежності для Odoo 17.0
+num2words==0.5.12
+ofxparse==0.21
+xlrd==2.0.1
+xlwt==1.3.0

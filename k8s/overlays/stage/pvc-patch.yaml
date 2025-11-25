@@ -1,0 +1,18 @@
+# kubernetes/overlays/stage/pvc-patch.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: odoo-data-pvc
+spec:
+  resources:
+    requests:
+      storage: 30Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: odoo-filestore-pvc
+spec:
+  resources:
+    requests:
+      storage: 50Gi

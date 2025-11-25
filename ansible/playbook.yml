@@ -5,12 +5,9 @@
 
   roles:
     - { role: gitlab, when: "'gitlab' in group_names", tags: ['gitlab'] }
-    - { role: gitlab_runner, when: "'k3s_nodes' in group_names or 'k3s_master' in group_names", tags: ['gitlab_runner'] }
-    - { role: monitoring, when: "'monitoring' in group_names", tags: ['monitoring'] }
-    - { role: redis, when: "'redis' in group_names", tags: ['redis'] }
+    - { role: gitlab_runner, when: "'gitlab_runner' in group_names", tags: ['gitlab_runner'] }
+    - { role: postgres_prod, when: "'postgres_prod' in group_names", tags: ['postgres'] }
     - { role: k3s, when: "'k3s_master' in group_names or 'k3s_nodes' in group_names", tags: ['k3s'] }
     - { role: nginx_ingress, when: "'k3s_master' in group_names", tags: ['k3s', 'ingress'] }
     - { role: k8s_dashboard, when: "'k3s_master' in group_names", tags: ['k3s', 'dashboard'] }
     - { role: odoo_cluster, when: "'k3s_master' in group_names", tags: ['k3s', 'odoo'] }
-    - { role: prometheus_grafana, when: "'k3s_master' in group_names", tags: ['monitoring', 'grafana'] }
-

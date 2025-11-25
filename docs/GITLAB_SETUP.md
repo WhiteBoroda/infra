@@ -1,5 +1,7 @@
 # GitLab Setup Guide
 
+> **Note**: Replace `<your-user>` with your actual SSH username from `ansible/inventory.ini` (e.g., `ansible_user=yv`)
+
 ## Step 1: Install GitLab
 
 GitLab will be installed automatically by Ansible playbook on `192.168.0.22`.
@@ -16,8 +18,8 @@ This takes ~20-30 minutes. GitLab installation is the slowest part.
 After installation completes:
 
 ```bash
-# SSH to GitLab server
-ssh ubuntu@192.168.0.22
+# SSH to GitLab server (replace <your-user> with your actual SSH username)
+ssh <your-user>@10.12.14.17
 
 # Get initial root password
 sudo cat /etc/gitlab/initial_root_password
@@ -27,7 +29,7 @@ sudo cat /etc/gitlab/initial_root_password
 
 ## Step 3: Login to GitLab
 
-1. Open in browser: `http://192.168.0.22`
+1. Open in browser: `http://10.12.14.17`
 2. Login:
    - Username: `root`
    - Password: from the file above
@@ -82,8 +84,8 @@ ansible-playbook -i inventory.ini playbook.yml \
 
 1. In GitLab Web UI, go to **Admin Area** → **CI/CD** → **Runners**
 2. You should see registered runners:
-   - `k3s-runner` from k3s-master (192.168.0.20)
-   - `k3s-runner` from k3s-node1 (192.168.0.21)
+   - `k3s-runner` from k3s-master (10.12.14.15)
+   - `k3s-runner` from k3s-node1 (10.12.14.16)
 
 ## Step 9: Create Your First Project
 
@@ -99,7 +101,7 @@ ansible-playbook -i inventory.ini playbook.yml \
 cd /home/user/infra
 
 # Add GitLab remote
-git remote add gitlab http://192.168.0.22/root/odoo-cluster.git
+git remote add gitlab http://10.12.14.17/root/odoo-cluster.git
 
 # Push to GitLab
 git push gitlab main
@@ -140,7 +142,7 @@ cat ~/.kube/config | base64 -w 0
 
 ```bash
 # Check GitLab status
-ssh ubuntu@192.168.0.22
+ssh <your-user>@10.12.14.17
 sudo gitlab-ctl status
 
 # Restart GitLab
@@ -154,13 +156,13 @@ sudo gitlab-ctl tail
 
 ```bash
 # On k3s node
-ssh ubuntu@192.168.0.20
+ssh <your-user>@10.12.14.15
 
 # Check runner status
 sudo gitlab-runner status
 
 # Verify runner can reach GitLab
-curl http://192.168.0.22
+curl http://10.12.14.17
 
 # Check runner logs
 sudo journalctl -u gitlab-runner -f
@@ -172,7 +174,7 @@ If you waited too long and the file was deleted:
 
 ```bash
 # Reset root password
-ssh ubuntu@192.168.0.22
+ssh <your-user>@10.12.14.17
 sudo gitlab-rake "gitlab:password:reset[root]"
 # Enter new password when prompted
 ```
@@ -194,7 +196,7 @@ Starting GitLab 15.6, **registration tokens are deprecated**. If you're using ne
 
 ```bash
 gitlab-runner register \
-  --url "http://192.168.0.22" \
+  --url "http://10.12.14.17" \
   --token "glrt-YOUR_AUTHENTICATION_TOKEN" \
   --executor "docker" \
   --description "k3s-runner" \

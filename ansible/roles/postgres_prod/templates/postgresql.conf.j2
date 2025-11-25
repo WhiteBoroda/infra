@@ -1,0 +1,129 @@
+# ansible/roles/postgres_prod/templates/postgresql.conf.j2
+# PostgreSQL 15 Production Configuration
+# Optimized for 16GB RAM, 8 CPU cores, 200GB SSD
+
+#------------------------------------------------------------------------------
+# CONNECTIONS AND AUTHENTICATION
+#------------------------------------------------------------------------------
+listen_addresses = '*'
+port = 5432
+max_connections = 300
+superuser_reserved_connections = 3
+
+#------------------------------------------------------------------------------
+# RESOURCE USAGE (except WAL)
+#------------------------------------------------------------------------------
+shared_buffers = 4GB                    # 25% of RAM
+huge_pages = try
+temp_buffers = 16MB
+max_prepared_transactions = 0
+work_mem = 10MB                         # Per operation
+maintenance_work_mem = 1GB
+autovacuum_work_mem = 512MB
+max_stack_depth = 2MB
+dynamic_shared_memory_type = posix
+
+# Background Writer
+bgwriter_delay = 200ms
+bgwriter_lru_maxpages = 100
+bgwriter_lru_multiplier = 2.0
+
+# Asynchronous Behavior
+effective_io_concurrency = 200          # SSD
+max_worker_processes = 8
+max_parallel_workers_per_gather = 4
+max_parallel_maintenance_workers = 4
+max_parallel_workers = 8
+
+#------------------------------------------------------------------------------
+# WRITE AHEAD LOG
+#------------------------------------------------------------------------------
+wal_level = replica
+fsync = on
+synchronous_commit = on
+wal_sync_method = fdatasync
+full_page_writes = on
+wal_compression = on
+wal_buffers = 16MB
+wal_writer_delay = 200ms
+checkpoint_timeout = 15min
+checkpoint_completion_target = 0.9
+max_wal_size = 8GB
+min_wal_size = 2GB
+archive_mode = on
+archive_command = 'pgbackrest --stanza=odoo archive-push %p'
+max_wal_senders = 10
+wal_keep_size = 1GB
+
+#------------------------------------------------------------------------------
+# REPLICATION
+#------------------------------------------------------------------------------
+hot_standby = on
+max_replication_slots = 10
+hot_standby_feedback = on
+
+#------------------------------------------------------------------------------
+# QUERY TUNING
+#------------------------------------------------------------------------------
+effective_cache_size = 12GB             # 75% of RAM
+random_page_cost = 1.1                  # SSD
+default_statistics_target = 100
+jit = on
+
+#------------------------------------------------------------------------------
+# REPORTING AND LOGGING
+#------------------------------------------------------------------------------
+logging_collector = on
+log_directory = 'log'
+log_filename = 'postgresql-%Y-%m-%d_%H%M%S.log'
+log_rotation_age = 1d
+log_rotation_size = 100MB
+log_min_duration_statement = 1000       # Log queries > 1s
+log_checkpoints = on
+log_connections = on
+log_disconnections = on
+log_lock_waits = on
+log_temp_files = 0
+log_line_prefix = '%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h '
+log_timezone = 'Europe/Kiev'
+
+#------------------------------------------------------------------------------
+# AUTOVACUUM
+#------------------------------------------------------------------------------
+autovacuum = on
+autovacuum_max_workers = 3
+autovacuum_naptime = 60s
+autovacuum_vacuum_threshold = 50
+autovacuum_analyze_threshold = 50
+autovacuum_vacuum_scale_factor = 0.1
+autovacuum_analyze_scale_factor = 0.05
+autovacuum_vacuum_cost_delay = 2ms
+autovacuum_vacuum_cost_limit = 200
+
+#------------------------------------------------------------------------------
+# CLIENT CONNECTION DEFAULTS
+#------------------------------------------------------------------------------
+datestyle = 'iso, dmy'
+timezone = 'Europe/Kiev'
+lc_messages = 'uk_UA.UTF-8'
+lc_monetary = 'uk_UA.UTF-8'
+lc_numeric = 'uk_UA.UTF-8'
+lc_time = 'uk_UA.UTF-8'
+default_text_search_config = 'pg_catalog.ukrainian'
+
+#------------------------------------------------------------------------------
+# LOCK MANAGEMENT
+#------------------------------------------------------------------------------
+deadlock_timeout = 1s
+max_locks_per_transaction = 64
+
+#------------------------------------------------------------------------------
+# VERSION/PLATFORM COMPATIBILITY
+#------------------------------------------------------------------------------
+shared_preload_libraries = 'pg_stat_statements'
+
+#------------------------------------------------------------------------------
+# CUSTOMIZED OPTIONS
+#------------------------------------------------------------------------------
+# Odoo specific
+standard_conforming_strings = on

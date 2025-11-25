@@ -1,0 +1,49 @@
+# kubernetes/base/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: odoo-config
+data:
+  odoo.conf: |
+    [options]
+    addons_path = /mnt/extra-addons,/usr/lib/python3/dist-packages/odoo/addons
+    data_dir = /var/lib/odoo
+    
+    ; Database
+    db_host = postgres
+    db_port = 5432
+    db_maxconn = 64
+    db_template = template0
+    
+    ; Redis Sessions
+    session_redis = True
+    session_redis_host = redis
+    session_redis_port = 6379
+    session_redis_db = 1
+    session_redis_prefix = odoo_session
+    session_redis_expiration = 86400
+    
+    ; Logging
+    logfile = False
+    log_level = info
+    log_handler = :INFO
+    
+    ; Workers (важливо для Redis sessions)
+    workers = 4
+    max_cron_threads = 2
+    
+    ; Limits
+    limit_memory_hard = 2684354560
+    limit_memory_soft = 2147483648
+    limit_request = 8192
+    limit_time_cpu = 600
+    limit_time_real = 1200
+    
+    ; HTTP
+    proxy_mode = True
+    xmlrpc_port = 8069
+    longpolling_port = 8072
+    
+    ; Security
+    admin_passwd = ${ADMIN_PASSWORD}
+    list_db = True

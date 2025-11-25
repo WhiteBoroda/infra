@@ -1,0 +1,109 @@
+# kubernetes/base/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: odoo
+  labels:
+    app: odoo
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: odoo
+  template:
+    metadata:
+      labels:
+        app: odoo
+    spec:
+      initContainers:
+      - name: wait-for-postgres
+        image: busybox:1.35
+        command: ['sh', '-c', 'until nc -z postgres 5432; do echo waiting for postgres; sleep 2; done;']
+      
+      - name: wait-for-redis
+        image: busybox:1.35
+        command: ['sh', '-c', 'until nc -z redis 6379; do echo waiting for redis; sleep 2; done;']
+      
+      containers:
+      - name: odoo
+        image: registry.gitlab.hd.local/odoo-project:IMAGE_TAG
+        ports:
+              key: db-user
+        - name: PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: odoo-secrets
+              key: db-password
+        - name: DB_NAME
+          value: "DB_NAME"
+        - name: DB_REPLICA_HOST
+          value: "postgres-patroni-replica"  # Хост для реплік PostgreSQL
+        - name: DB_REPLICA_PORT
+          value: "5432"
+        
+        # Redis для сесій
+        - name: ODOO_SESSION_REDIS
+          value: "1"
+        - name: ODOO_SESSION_REDIS_HOST
+          value: "redis"
+        - name: ODOO_SESSION_REDIS_PORT
+          value: "6379"
+        - name: ODOO_SESSION_REDIS_PREFIX
+          value: "odoo_session"
+        - name: ODOO_SESSION_REDIS_EXPIRATION
+          value: "86400"  # 24 години
+        
+        # Admin password
+        - name: ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: odoo-secrets
+              key: admin-password
+        
+        volumeMounts:
+        - name: odoo-data
+          mountPath: /var/lib/odoo
+        - name: addons
+          mountPath: /mnt/extra-addons
+        - name: odoo-config
+          mountPath: /etc/odoo
+          readOnly: true
+        
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        
+        livenessProbe:
+          httpGet:
+            path: /web/health
+            port: 8069
+          initialDelaySeconds: 90
+          periodSeconds: 30
+          timeoutSeconds: 10
+        
+        readinessProbe:
+          httpGet:
+            path: /web/health
+            port: 8069
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      
+      volumes:
+      - name: odoo-data
+        persistentVolumeClaim:
+          claimName: odoo-data-pvc
+      - name: addons
+        persistentVolumeClaim:
+          claimName: odoo-addons-pvc
+      - name: odoo-config
+        configMap:
+          name: odoo-config

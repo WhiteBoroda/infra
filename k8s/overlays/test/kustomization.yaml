@@ -1,0 +1,34 @@
+# kubernetes/overlays/test/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: odoo-test
+
+resources:
+- ../../base
+- redis-config.yaml  # Додаємо Redis конфіг
+
+patchesStrategicMerge:
+- deployment-patch.yaml
+- ingress-patch.yaml
+- redis-patch.yaml
+
+configMapGenerator:
+- name: odoo-config
+  behavior: merge
+  literals:
+  - list_db=True
+  - workers=2
+  - max_cron_threads=1
+  - log_level=debug
+  - session_redis=True
+
+replicas:
+- name: odoo
+  count: 1
+- name: redis
+  count: 1
+
+commonLabels:
+  environment: test
+  managed-by: gitlab-ci

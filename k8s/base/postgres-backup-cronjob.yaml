@@ -1,0 +1,122 @@
+# kubernetes/base/postgres-backup-cronjob.yaml
+# PostgreSQL Backup CronJob
+# Supports different hosts per environment:
+# - Production: postgres-prod (external VM 10.12.14.19)
+# - Dev/Test/Stage: postgres (in-cluster StatefulSet)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+spec:
+  schedule: "0 2 * * *"  # Daily at 2:00 AM
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: backup
+            image: postgres:15
+            command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+              BACKUP_DIR="/backups"
+              
+              # Получаем namespace для определения окружения
+              NAMESPACE=$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)
+              
+              # Выбираем хост в зависимости от namespace
+              case "$NAMESPACE" in
+                odoo-prod)
+                  PG_HOST="postgres-prod"
+                  DB_NAME="odoo_prod"
+                  echo "Production environment detected, using external PostgreSQL VM"
+                  ;;
+                odoo-stage)
+                  PG_HOST="postgres"
+                  DB_NAME="odoo_stage"
+                  echo "Staging environment detected"
+                  ;;
+                odoo-dev)
+                  PG_HOST="postgres"
+                  DB_NAME="odoo_dev"
+                  echo "Development environment detected"
+                  ;;
+                odoo-test*)
+                  PG_HOST="postgres"
+                  DB_NAME="odoo_test"
+                  echo "Test environment detected"
+                  ;;
+                *)
+                  PG_HOST="${PG_HOST:-postgres}"
+                  DB_NAME="odoo"
+                  echo "Unknown environment, using defaults"
+                  ;;
+              esac
+              
+              echo "Backing up database: ${DB_NAME} from ${PG_HOST}..."
+              
+              # Backup main database
+              pg_dump -h ${PG_HOST} -U postgres ${DB_NAME} | \
+                gzip > ${BACKUP_DIR}/${DB_NAME}_${TIMESTAMP}.sql.gz
+              
+              if [ $? -eq 0 ]; then
+                echo "✓ Database backup successful: ${DB_NAME}_${TIMESTAMP}.sql.gz"
+              else
+                echo "✗ Database backup failed!"
+                exit 1
+              fi
+              
+              # Backup globals (roles, users) - только если это не production
+              # (для production это делается на VM через pgBackRest)
+              if [ "$NAMESPACE" != "odoo-prod" ]; then
+                echo "Backing up global objects (roles, users)..."
+                pg_dumpall -h ${PG_HOST} -U postgres --globals-only | \
+                  gzip > ${BACKUP_DIR}/globals_${TIMESTAMP}.sql.gz
+                echo "✓ Globals backup successful"
+              fi
+              
+              # Cleanup old backups (older than 30 days)
+              echo "Cleaning up old backups (>30 days)..."
+              DELETED=$(find ${BACKUP_DIR} -name "*.sql.gz" -mtime +30 -delete -print | wc -l)
+              echo "✓ Deleted ${DELETED} old backup files"
+              
+              # List current backups
+              echo ""
+              echo "Current backups:"
+              ls -lh ${BACKUP_DIR}/*.sql.gz 2>/dev/null | tail -10 || echo "No backups found"
+              
+              echo ""
+              echo "=== Backup completed successfully at ${TIMESTAMP} ==="
+            env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: odoo-secrets
+                  key: db-password
+            - name: PG_HOST
+              value: ""  # Can be overridden per environment via kustomize
+            volumeMounts:
+            - name: backup-storage
+              mountPath: /backups
+          volumes:
+          - name: backup-storage
+            persistentVolumeClaim:
+              claimName: postgres-backup-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-backup-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 100Gi  # Reduced from 500Gi - adequate for backups

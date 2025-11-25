@@ -1,0 +1,45 @@
+# kubernetes/base/pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: odoo-data-pvc
+  labels:
+    app: odoo
+    component: data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: local-path  # k3s default storage class
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: odoo-addons-pvc
+  labels:
+    app: odoo
+    component: addons
+spec:
+  accessModes:
+    - ReadWriteMany  # Multiple pods need access to addons
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: local-path
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: odoo-filestore-pvc
+  labels:
+    app: odoo
+    component: filestore
+spec:
+  accessModes:
+    - ReadWriteMany  # Multiple pods need access to filestore
+  resources:
+    requests:
+      storage: 100Gi  # For uploaded files, attachments, etc.
+  storageClassName: local-path

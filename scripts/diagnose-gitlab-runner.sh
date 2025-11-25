@@ -4,7 +4,7 @@
 
 set -e
 
-GITLAB_IP="${GITLAB_IP:-192.168.0.22}"
+GITLAB_IP="${GITLAB_IP:-10.12.14.17}"
 RUNNER_TOKEN="${RUNNER_TOKEN:-}"
 
 echo "=========================================="

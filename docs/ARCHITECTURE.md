@@ -228,18 +228,17 @@ redis:
 postgresql:
   enabled: false  # не в Kubernetes
   external:
-    host: 192.168.0.25
+    host: 10.12.14.19  # PostgreSQL Production VM
     port: 5432
     database: odoo_prod
     user: odoo
     password: "secure_password"
 
-# Redis можно оставить в Kubernetes или на VM
+# Redis можно оставить в Kubernetes
 redis:
-  enabled: true  # или false, если на VM
-  external:
-    host: 192.168.0.24
-    port: 6379
+  enabled: true  # в Kubernetes для кеша
+  # Для production обычно достаточно Redis в Kubernetes
+  # external config не требуется
 ```
 
 ---
@@ -252,22 +251,22 @@ redis:
 # k8s/overlays/prod/values.yaml
 odoo:
   database:
-    host: 192.168.0.25  # внешний PostgreSQL
+    host: 10.12.14.19  # PostgreSQL Production VM
     port: 5432
     user: odoo
     password: "secure_password_from_vault"
     name: odoo_prod
 ```
 
-### Подключение к внешнему Redis
+### Подключение к Redis (в Kubernetes)
 
 ```yaml
 odoo:
   cache:
     redis:
-      host: 192.168.0.24  # внешний Redis
+      host: redis-service  # Redis в Kubernetes
       port: 6379
-      password: "redis_password"
+      password: ""  # если нужен пароль
 ```
 
 ---

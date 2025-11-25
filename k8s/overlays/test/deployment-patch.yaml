@@ -1,0 +1,22 @@
+# kubernetes/overlays/test/deployment-patch.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: odoo
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+      - name: odoo
+        resources:
+          requests:
+            port: 8069
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /web/health
+            port: 8069
+          initialDelaySeconds: 30
+          periodSeconds: 10

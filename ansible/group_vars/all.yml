@@ -1,9 +1,9 @@
 # Infrastructure IPs
-k3s_master_ip: 192.168.0.20
-k3s_node1_ip: 192.168.0.21
-gitlab_ip: 192.168.0.22
-monitoring_ip: 192.168.0.23
-redis_ip: 192.168.0.24
+k3s_master_ip: 10.12.14.15
+k3s_node1_ip: 10.12.14.16
+gitlab_ip: 10.12.14.17
+monitoring_ip: 10.12.14.18
+redis_ip: 10.12.14.19
 postgres_ip: 192.168.0.25
 
 # GitLab Runner registration token

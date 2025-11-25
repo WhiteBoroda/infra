@@ -1,0 +1,36 @@
+# kubernetes/base/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: odoo-ingress
+  annotations:
+    cert-manager.io/cluster-issuer: CERT_ISSUER
+    nginx.ingress.kubernetes.io/proxy-body-size: PROXY_BODY_SIZE
+    nginx.ingress.kubernetes.io/proxy-read-timeout: PROXY_READ_TIMEOUT
+    nginx.ingress.kubernetes.io/proxy-send-timeout: PROXY_SEND_TIMEOUT
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - DOMAIN_HOST
+    secretName: odoo-tls-SECRET_SUFFIX
+  rules:
+  - host: DOMAIN_HOST
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: odoo
+            port:
+              number: 8069
+      - path: /longpolling
+        pathType: Prefix
+        backend:
+          service:
+            name: odoo
+            port:
+              number: 8072

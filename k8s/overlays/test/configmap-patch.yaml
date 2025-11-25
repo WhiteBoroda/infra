@@ -1,0 +1,28 @@
+# kubernetes/overlays/test/configmap-patch.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: odoo-config
+data:
+  odoo.conf: |
+    [options]
+    addons_path = /mnt/extra-addons,/usr/lib/python3/dist-packages/odoo/addons
+    data_dir = /var/lib/odoo
+    
+    db_host = postgres
+    db_port = 5432
+    db_maxconn = 32
+    
+    workers = 1
+    max_cron_threads = 1
+    
+    limit_memory_hard = 1073741824
+    limit_memory_soft = 838860800
+    
+    proxy_mode = True
+    xmlrpc_port = 8069
+    longpolling_port = 8072
+    
+    list_db = True
+    log_level = debug
+    without_demo = False

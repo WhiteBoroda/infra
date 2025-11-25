@@ -1,0 +1,37 @@
+# kubernetes/base/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: odoo
+  labels:
+    app: odoo
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8069
+    targetPort: 8069
+    protocol: TCP
+    name: http
+  - port: 8072
+    targetPort: 8072
+    protocol: TCP
+    name: longpolling
+  selector:
+    app: odoo
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  labels:
+    app: postgres
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5432
+    targetPort: 5432
+    protocol: TCP
+    name: postgres
+  selector:
+    app: postgres
+  clusterIP: None  # Headless service для StatefulSet

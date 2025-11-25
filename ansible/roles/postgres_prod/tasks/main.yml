@@ -1,0 +1,133 @@
+---
+# ansible/roles/postgres_prod/tasks/main.yml
+
+- name: Install PostgreSQL 15
+  apt:
+    name:
+      - postgresql-15
+      - postgresql-contrib-15
+      - postgresql-client-15
+      - python3-psycopg2
+    state: present
+    update_cache: yes
+
+- name: Install pgBackRest for backups
+  apt:
+    name:
+      - pgbackrest
+    state: present
+
+- name: Stop PostgreSQL to configure
+  systemd:
+    name: postgresql
+    state: stopped
+
+- name: Configure PostgreSQL for production
+  template:
+    src: postgresql.conf.j2
+    dest: /etc/postgresql/15/main/postgresql.conf
+    owner: postgres
+    group: postgres
+    mode: '0644'
+  notify: restart postgresql
+
+- name: Configure pg_hba.conf
+  template:
+    src: pg_hba.conf.j2
+    dest: /etc/postgresql/15/main/pg_hba.conf
+    owner: postgres
+    group: postgres
+    mode: '0640'
+  notify: restart postgresql
+
+- name: Create data directory with proper permissions
+  file:
+    path: /var/lib/postgresql/15/main
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0700'
+
+- name: Start and enable PostgreSQL
+  systemd:
+    name: postgresql
+    state: started
+    enabled: yes
+
+- name: Create Odoo database user
+  postgresql_user:
+    name: "{{ postgres_odoo_user }}"
+    password: "{{ postgres_odoo_password }}"
+    role_attr_flags: CREATEDB,NOSUPERUSER
+    state: present
+  become: yes
+  become_user: postgres
+
+- name: Create Odoo databases
+  postgresql_db:
+    name: "{{ item }}"
+    owner: "{{ postgres_odoo_user }}"
+    encoding: UTF8
+    lc_collate: uk_UA.UTF-8
+    lc_ctype: uk_UA.UTF-8
+    template: template0
+    state: present
+  become: yes
+  become_user: postgres
+  loop:
+    - odoo_prod
+    - odoo_stage
+    - odoo_dev
+
+- name: Configure pgBackRest
+  template:
+    src: pgbackrest.conf.j2
+    dest: /etc/pgbackrest/pgbackrest.conf
+    owner: postgres
+    group: postgres
+    mode: '0640'
+
+- name: Create pgBackRest stanza
+  command: pgbackrest --stanza=odoo stanza-create
+  become: yes
+  become_user: postgres
+  args:
+    creates: /var/lib/pgbackrest/backup/odoo
+
+- name: Setup daily backup cron job
+  cron:
+    name: "PostgreSQL daily backup"
+    minute: "0"
+    hour: "2"
+    job: "pgbackrest --stanza=odoo --type=full backup"
+    user: postgres
+    state: present
+
+- name: Setup weekly full backup cron job
+  cron:
+    name: "PostgreSQL weekly full backup"
+    minute: "0"
+    hour: "3"
+    weekday: "0"
+    job: "pgbackrest --stanza=odoo --type=full backup"
+    user: postgres
+    state: present
+
+- name: Install PostgreSQL exporter for monitoring
+  apt:
+    deb: https://github.com/prometheus-community/postgres_exporter/releases/download/v0.15.0/postgres_exporter_0.15.0_linux_amd64.deb
+    state: present
+
+- name: Configure postgres_exporter
+  template:
+    src: postgres_exporter.service.j2
+    dest: /etc/systemd/system/postgres_exporter.service
+    mode: '0644'
+  notify: restart postgres_exporter
+
+- name: Start and enable postgres_exporter
+  systemd:
+    name: postgres_exporter
+    state: started
+    enabled: yes
+    daemon_reload: yes

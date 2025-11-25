@@ -1,0 +1,72 @@
+# kubernetes/overlays/prod/redis-statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+spec:
+  serviceName: redis
+  replicas: 3  # Master + 2 replicas
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+          name: redis
+        command:
+        - sh
+        - -c
+        - |
+          if [ "$(hostname)" = "redis-0" ]; then
+            redis-server \
+              --appendonly yes \
+              --maxmemory 1gb \
+              --maxmemory-policy allkeys-lru \
+              --save "900 1" \
+              --save "300 10" \
+              --save "60 10000"
+          else
+            redis-server \
+              --replicaof redis-0.redis 6379 \
+              --appendonly yes \
+              --maxmemory 1gb \
+              --maxmemory-policy allkeys-lru
+          fi
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+  volumeClaimTemplates:
+  - metadata:
+      name: redis-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: fast-ssd  # Швидке сховище для Redis
+      resources:
+        requests:
+          storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+spec:
+  clusterIP: None  # Headless service
+  ports:
+  - port: 6379
+    targetPort: 6379
+  selector:
+    app: redis

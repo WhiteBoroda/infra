@@ -1,0 +1,33 @@
+# kubernetes/overlays/dev/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: odoo-dev
+
+resources:
+- ../../base
+
+patchesStrategicMerge:
+- deployment-patch.yaml
+- ingress-patch.yaml
+
+configMapGenerator:
+- name: odoo-config
+  behavior: merge
+  literals:
+  - list_db=True
+  - workers=2
+  - max_cron_threads=1
+  - log_level=info
+  - db_host=postgres
+  - db_port=5432
+
+replicas:
+- name: odoo
+  count: 2
+- name: redis
+  count: 1
+
+commonLabels:
+  environment: dev
+  managed-by: manual

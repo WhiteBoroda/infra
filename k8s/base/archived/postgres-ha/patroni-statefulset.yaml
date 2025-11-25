@@ -1,0 +1,292 @@
+# kubernetes/base/postgres-ha/patroni-statefulset.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: patroni-config
+data:
+  patroni.yml: |
+    scope: odoo-postgres
+    name: ${HOSTNAME}
+    
+    restapi:
+      listen: 0.0.0.0:8008
+      connect_address: ${HOSTNAME}.postgres-patroni:8008
+    
+    etcd:
+      hosts:
+        - etcd-0.etcd:2379
+        - etcd-1.etcd:2379
+        - etcd-2.etcd:2379
+    
+    bootstrap:
+      dcs:
+        ttl: 30
+        loop_wait: 10
+        retry_timeout: 10
+        maximum_lag_on_failover: 1048576
+        postgresql:
+          use_pg_rewind: true
+          parameters:
+            max_connections: 300
+            shared_buffers: 2GB
+            effective_cache_size: 6GB
+            maintenance_work_mem: 512MB
+            checkpoint_completion_target: 0.9
+            wal_buffers: 16MB
+            default_statistics_target: 100
+            random_page_cost: 1.1
+            effective_io_concurrency: 200
+            work_mem: 10MB
+            min_wal_size: 1GB
+            max_wal_size: 4GB
+            max_worker_processes: 4
+            max_parallel_workers_per_gather: 2
+            max_parallel_workers: 4
+            wal_level: replica
+            hot_standby: on
+            max_wal_senders: 10
+            max_replication_slots: 10
+      
+      initdb:
+        - encoding: UTF8
+        - locale: uk_UA.UTF-8
+        - data-checksums
+      
+      pg_hba:
+        - host replication replicator 0.0.0.0/0 md5
+        - host all all 0.0.0.0/0 md5
+      
+      users:
+        admin:
+          password: admin
+          options:
+            - createrole
+            - createdb
+        replicator:
+          password: replPass
+          options:
+            - replication
+    
+    postgresql:
+      listen: 0.0.0.0:5432
+      connect_address: ${HOSTNAME}.postgres-patroni:5432
+      data_dir: /var/lib/postgresql/data/pgdata
+      bin_dir: /usr/lib/postgresql/15/bin
+      authentication:
+        replication:
+          username: replicator
+          password: replPass
+        superuser:
+          username: postgres
+          password: postgresPass
+      parameters:
+        unix_socket_directories: /var/run/postgresql
+    
+    tags:
+      nofailover: false
+      noloadbalance: false
+      clonefrom: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-patroni
+  labels:
+    app: postgres-patroni
+spec:
+  clusterIP: None
+  ports:
+  - port: 5432
+    name: postgres
+  - port: 8008
+    name: patroni
+  selector:
+    app: postgres-patroni
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-patroni-master
+  labels:
+    app: postgres-patroni
+    role: master
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5432
+    targetPort: 5432
+    name: postgres
+  selector:
+    app: postgres-patroni
+    role: master
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-patroni-replica
+  labels:
+    app: postgres-patroni
+    role: replica
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5432
+    targetPort: 5432
+    name: postgres
+  selector:
+    app: postgres-patroni
+    role: replica
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-patroni
+spec:
+  serviceName: postgres-patroni
+  replicas: 3
+  selector:
+    matchLabels:
+      app: postgres-patroni
+  template:
+    metadata:
+      labels:
+        app: postgres-patroni
+    spec:
+      serviceAccountName: postgres-patroni
+      containers:
+      - name: patroni
+        image: patroni/patroni:3.2.2
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5432
+          name: postgres
+        - containerPort: 8008
+          name: patroni
+        env:
+        - name: PATRONI_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: PATRONI_KUBERNETES_POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: PATRONI_KUBERNETES_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: PATRONI_KUBERNETES_LABELS
+          value: '{app: postgres-patroni}'
+        - name: PATRONI_SUPERUSER_USERNAME
+          value: postgres
+        - name: PATRONI_SUPERUSER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secrets
+              key: superuser-password
+        - name: PATRONI_REPLICATION_USERNAME
+          value: replicator
+        - name: PATRONI_REPLICATION_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secrets
+              key: replication-password
+        - name: PATRONI_SCOPE
+          value: odoo-postgres
+        - name: PATRONI_POSTGRESQL_DATA_DIR
+          value: /var/lib/postgresql/data/pgdata
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+        - name: patroni-config
+          mountPath: /etc/patroni
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "4000m"
+        livenessProbe:
+          httpGet:
+            path: /liveness
+            port: 8008
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /readiness
+            port: 8008
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+      volumes:
+      - name: patroni-config
+        configMap:
+          name: patroni-config
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: fast-ssd
+      resources:
+        requests:
+          storage: 100Gi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: postgres-patroni
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: postgres-patroni
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - endpoints
+  verbs:
+  - get
+  - patch
+  - update
+  - create
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: postgres-patroni
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: postgres-patroni
+subjects:
+- kind: ServiceAccount
+  name: postgres-patroni

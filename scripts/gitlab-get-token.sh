@@ -2,7 +2,7 @@
 
 # Скрипт для получения runner token из GitLab
 
-GITLAB_IP="${1:-192.168.0.22}"
+GITLAB_IP="${1:-10.12.14.17}"
 
 echo "=== Инструкция по получению GitLab Runner Token ==="
 echo ""

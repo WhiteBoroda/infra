@@ -1,0 +1,7 @@
+# docker/requirements-19.0.txt
+# Специфічні залежності для Odoo 19.0
+num2words==0.5.13
+ofxparse==0.21
+xlrd==2.0.1
+# Нові залежності для 19.0
+pydantic==2.5.0

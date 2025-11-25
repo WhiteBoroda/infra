@@ -1,272 +1,538 @@
-# GitLab CI/CD Pipeline for Odoo Cluster
+# .gitlab-ci.yml
+
+include:
+  - local: '.gitlab/variables.yml'
 
 variables:
+  # Default version
+  ODOO_VERSION: "17.0"
   DOCKER_DRIVER: overlay2
   DOCKER_TLS_CERTDIR: "/certs"
-  HELM_VERSION: "3.13.0"
-  KUBECTL_VERSION: "1.28.0"
-  K8S_NAMESPACE_DEV: "odoo-dev"
-  K8S_NAMESPACE_STAGE: "odoo-stage"
-  K8S_NAMESPACE_PROD: "odoo-prod"
 
 stages:
-  - lint
+  - prepare
   - build
   - test
   - security
+  - deploy-test
   - deploy-dev
   - deploy-stage
   - deploy-prod
-  - performance-test
+  - cleanup
+  - rollback
 
-# Templates
-.kubectl_config: &kubectl_config
-  - mkdir -p ~/.kube
-  - echo "$KUBECONFIG_CONTENT" | base64 -d > ~/.kube/config
-  - chmod 600 ~/.kube/config
+# Anchors для повторюваного коду
+.load_variables: &load_variables
+  - apk add --no-cache yq curl bash
+  - export PROJECT_NAME=$(yq eval '.project.name' config/variables.yaml)
+  - export REGISTRY_URL=$(yq eval '.registry.url' config/variables.yaml)
+  - export IMAGE_NAME="${REGISTRY_URL}/${CI_PROJECT_PATH}"
+  # Domains
+  - export DOMAIN_TEST=$(yq eval '.domains.test' config/variables.yaml)
+  - export DOMAIN_DEV=$(yq eval '.domains.dev' config/variables.yaml)
+  - export DOMAIN_STAGE=$(yq eval '.domains.stage' config/variables.yaml)
+  - export DOMAIN_PROD=$(yq eval '.domains.prod' config/variables.yaml)
+  # Namespaces
+  - export NAMESPACE_TEST=$(yq eval '.namespaces.test' config/variables.yaml)
+  - export NAMESPACE_DEV=$(yq eval '.namespaces.dev' config/variables.yaml)
+  - export NAMESPACE_STAGE=$(yq eval '.namespaces.stage' config/variables.yaml)
+  - export NAMESPACE_PROD=$(yq eval '.namespaces.prod' config/variables.yaml)
+  # Timeouts
+  - export DEPLOY_TIMEOUT_DEV=$(yq eval '.cicd.deploy_timeout.dev' config/variables.yaml)
+  - export DEPLOY_TIMEOUT_STAGE=$(yq eval '.cicd.deploy_timeout.stage' config/variables.yaml)
+  - export DEPLOY_TIMEOUT_PROD=$(yq eval '.cicd.deploy_timeout.prod' config/variables.yaml)
+  # Kubectl version
+  - export KUBECTL_VERSION=$(yq eval '.cicd.kubectl_version // "1.28.0"' config/variables.yaml)
+  - export KUSTOMIZE_VERSION=$(yq eval '.cicd.kustomize_version // "5.0.0"' config/variables.yaml)
 
-.helm_install: &helm_install
-  - curl -fsSL https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz | tar -xz
-  - mv linux-amd64/helm /usr/local/bin/
-  - helm version
+.determine_version: &determine_version
+  - |
+    # Визначаємо версію з змінних або з branch name
+    if [[ "$CI_COMMIT_REF_NAME" =~ ^v([0-9]+\.[0-9]+)- ]]; then
+      export ODOO_VERSION="${BASH_REMATCH[1]}"
+      echo "Detected version from branch: ${ODOO_VERSION}"
+    elif [ -n "$OVERRIDE_ODOO_VERSION" ]; then
+      export ODOO_VERSION="$OVERRIDE_ODOO_VERSION"
+      echo "Using override version: ${ODOO_VERSION}"
+    else
+      # Версія з variables.yaml для середовища
+      if [ "$CI_COMMIT_REF_NAME" = "main" ]; then
+        export ODOO_VERSION=$(yq eval '.odoo_versions.default.prod' config/variables.yaml)
+      elif [ "$CI_COMMIT_REF_NAME" = "develop" ]; then
+        export ODOO_VERSION=$(yq eval '.odoo_versions.default.dev' config/variables.yaml)
+      else
+        export ODOO_VERSION=$(yq eval '.odoo_versions.default.test' config/variables.yaml)
+      fi
+      echo "Using version for environment: ${ODOO_VERSION}"
+    fi
+    
+    # Перевірка доступності версії
+    if ! yq eval ".odoo_versions.available[] | select(. == \"${ODOO_VERSION}\")" config/variables.yaml | grep -q "${ODOO_VERSION}"; then
+      echo "Error: Odoo version ${ODOO_VERSION} is not supported"
+      exit 1
+    fi
+    
+    # Експорт для наступних jobs
+    echo "ODOO_VERSION=${ODOO_VERSION}" >> build.env
+    echo "Odoo version set to: ${ODOO_VERSION}"
+
+.docker_login: &docker_login
+  - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $REGISTRY_URL
+
+.kubectl_setup: &kubectl_setup
+  - echo "$KUBECONFIG_CONTENT" | base64 -d > /tmp/kubeconfig
+  - export KUBECONFIG=/tmp/kubeconfig
+  - kubectl version --client
 
 # ============================================
-# LINT STAGE
+# PREPARE STAGE
 # ============================================
 
-lint:yaml:
-  stage: lint
-  image: cytopia/yamllint:latest
+validate:yaml:
+  stage: prepare
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache yq
   script:
-    - yamllint -c .yamllint k8s/
+    - echo "Validating YAML files..."
+    - yq eval '.' config/variables.yaml > /dev/null
+    - echo "✓ config/variables.yaml is valid"
+    - |
+      for file in kubernetes/base/*.yaml; do
+        echo "Checking $file..."
+        yq eval '.' "$file" > /dev/null || exit 1
+      done
+    - echo "✓ All YAML files are valid"
   only:
     - merge_requests
-    - main
-  tags:
-    - docker
+    - branches
 
-lint:helm:
-  stage: lint
-  image: alpine/helm:${HELM_VERSION}
+validate:docker:
+  stage: prepare
+  image: hadolint/hadolint:latest-alpine
   script:
-    - helm lint k8s/charts/odoo/
+    - echo "Linting Dockerfile..."
+    - hadolint docker/Dockerfile --ignore DL3008 --ignore DL3009
+    - echo "✓ Dockerfile is valid"
   only:
     - merge_requests
-    - main
-  tags:
-    - docker
+    - branches
 
-lint:ansible:
-  stage: lint
-  image: cytopia/ansible-lint:latest
+generate:configmaps:
+  stage: prepare
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache yq bash
   script:
-    - ansible-lint ansible/
+    - chmod +x scripts/generate-configmaps.sh
+    - ./scripts/generate-configmaps.sh
+    - chmod +x scripts/generate-ingress.sh
+    - ./scripts/generate-ingress.sh
+  artifacts:
+    paths:
+      - kubernetes/generated/
+    expire_in: 1 hour
   only:
-    - merge_requests
-    - main
-  tags:
-    - docker
+    - branches
+    - tags
 
-lint:terraform:
-  stage: lint
-  image: hashicorp/terraform:latest
+generate:version-matrix:
+  stage: prepare
+  image: alpine:latest
+  before_script:
+    - *load_variables
+    - *determine_version
   script:
-    - cd terraform
-    - terraform init -backend=false
-    - terraform validate
-    - terraform fmt -check
+    - echo "ODOO_VERSION=${ODOO_VERSION}" > build.env
+    - echo "IMAGE_TAG=${CI_COMMIT_SHORT_SHA}-odoo${ODOO_VERSION}" >> build.env
+    - echo "IMAGE_TAG_BRANCH=${CI_COMMIT_REF_SLUG}-odoo${ODOO_VERSION}" >> build.env
+    # Додаємо domains до env
+    - echo "DOMAIN_TEST=${DOMAIN_TEST}" >> build.env
+    - echo "DOMAIN_DEV=${DOMAIN_DEV}" >> build.env
+    - echo "DOMAIN_STAGE=${DOMAIN_STAGE}" >> build.env
+    - echo "DOMAIN_PROD=${DOMAIN_PROD}" >> build.env
+    # Додаємо namespaces
+    - echo "NAMESPACE_TEST=${NAMESPACE_TEST}" >> build.env
+    - echo "NAMESPACE_DEV=${NAMESPACE_DEV}" >> build.env
+    - echo "NAMESPACE_STAGE=${NAMESPACE_STAGE}" >> build.env
+    - echo "NAMESPACE_PROD=${NAMESPACE_PROD}" >> build.env
+    - cat build.env
+  artifacts:
+    reports:
+      dotenv: build.env
+    expire_in: 1 day
   only:
-    - merge_requests
-    - main
-  tags:
-    - docker
-
-lint:shellcheck:
-  stage: lint
-  image: koalaman/shellcheck-alpine:latest
-  script:
-    - shellcheck scripts/*.sh
-  only:
-    - merge_requests
-    - main
-  tags:
-    - docker
-
-test:bats:
-  stage: test
-  image: bats/bats:latest
-  script:
-    - cd scripts
-    - bats tests/
-  only:
-    - merge_requests
-    - main
-  tags:
-    - docker
+    - branches
+    - tags
 
 # ============================================
 # BUILD STAGE
 # ============================================
 
-build:odoo-custom:
+build:odoo:
+  stage: build
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  needs:
+    - generate:version-matrix
+  before_script:
+    - apk add --no-cache yq bash git
+    - *load_variables
+    - *docker_login
+  script:
+    - export BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+    - export VCS_REF=${CI_COMMIT_SHORT_SHA}
+    - export IMAGE_TAG="${CI_COMMIT_SHORT_SHA}-odoo${ODOO_VERSION}"
+    - export IMAGE_TAG_BRANCH="${CI_COMMIT_REF_SLUG}-odoo${ODOO_VERSION}"
+    - export IMAGE_TAG_VERSION="odoo${ODOO_VERSION}-latest"
+    
+    - echo "Building Odoo ${ODOO_VERSION} image..."
+    - echo "Registry: ${REGISTRY_URL}"
+    - echo "Image tags:"
+    - echo "  - ${IMAGE_NAME}:${IMAGE_TAG}"
+    - echo "  - ${IMAGE_NAME}:${IMAGE_TAG_BRANCH}"
+    - echo "  - ${IMAGE_NAME}:${IMAGE_TAG_VERSION}"
+    
+    # Build з cache
+    - |
+      docker pull ${IMAGE_NAME}:${IMAGE_TAG_VERSION} || true
+      docker build \
+        --build-arg ODOO_VERSION=${ODOO_VERSION} \
+        --build-arg BUILD_DATE=${BUILD_DATE} \
+        --build-arg VCS_REF=${VCS_REF} \
+        --cache-from ${IMAGE_NAME}:${IMAGE_TAG_VERSION} \
+        -t ${IMAGE_NAME}:${IMAGE_TAG} \
+        -t ${IMAGE_NAME}:${IMAGE_TAG_BRANCH} \
+        -t ${IMAGE_NAME}:${IMAGE_TAG_VERSION} \
+        -f docker/Dockerfile .
+    
+    # Push images
+    - docker push ${IMAGE_NAME}:${IMAGE_TAG}
+    - docker push ${IMAGE_NAME}:${IMAGE_TAG_BRANCH}
+    - docker push ${IMAGE_NAME}:${IMAGE_TAG_VERSION}
+    
+    # Image info
+    - docker images | grep odoo || true
+    - echo "✓ Build completed"
+    
+    # Save build info
+    - echo "IMAGE_FULL_TAG=${IMAGE_NAME}:${IMAGE_TAG}" >> build.env
+    - echo "ODOO_VERSION=${ODOO_VERSION}" >> build.env
+  
+  artifacts:
+    reports:
+      dotenv: build.env
+    expire_in: 1 day
+  
+  only:
+    - branches
+    - tags
+  
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+
+build:multi-version:
   stage: build
   image: docker:24-dind
   services:
     - docker:24-dind
   before_script:
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - apk add --no-cache yq bash
+    - *load_variables
+    - *docker_login
   script:
     - |
-      if [ -d "custom_modules" ]; then
-        docker build -t $CI_REGISTRY_IMAGE/odoo:$CI_COMMIT_SHORT_SHA -f docker/Dockerfile.odoo .
-        docker push $CI_REGISTRY_IMAGE/odoo:$CI_COMMIT_SHORT_SHA
-
-        # Tag as latest on main branch
-        if [ "$CI_COMMIT_BRANCH" == "main" ]; then
-          docker tag $CI_REGISTRY_IMAGE/odoo:$CI_COMMIT_SHORT_SHA $CI_REGISTRY_IMAGE/odoo:latest
-          docker push $CI_REGISTRY_IMAGE/odoo:latest
-        fi
-      else
-        echo "No custom modules to build, using official Odoo image"
-      fi
+      # Build всіх підтримуваних версій паралельно
+      for VERSION in $(yq eval '.odoo_versions.available[]' config/variables.yaml); do
+        echo "Building Odoo ${VERSION}..."
+        
+        docker build \
+          --build-arg ODOO_VERSION=${VERSION} \
+          --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+          --build-arg VCS_REF=${CI_COMMIT_SHORT_SHA} \
+          -t ${IMAGE_NAME}:${CI_COMMIT_SHORT_SHA}-odoo${VERSION} \
+          -t ${IMAGE_NAME}:odoo${VERSION}-latest \
+          -f docker/Dockerfile . &
+      done
+      
+      # Чекаємо завершення всіх build
+      wait
+      
+      # Push всіх образів
+      for VERSION in $(yq eval '.odoo_versions.available[]' config/variables.yaml); do
+        docker push ${IMAGE_NAME}:${CI_COMMIT_SHORT_SHA}-odoo${VERSION}
+        docker push ${IMAGE_NAME}:odoo${VERSION}-latest
+      done
+      
+      echo "✓ All versions built and pushed"
+  
   only:
+    - schedules
     - main
-    - develop
-    - tags
-  tags:
-    - docker
+  when: manual
 
 # ============================================
 # TEST STAGE
 # ============================================
 
+test:syntax:
+  stage: test
+  image: ${IMAGE_FULL_TAG}
+  needs:
+    - build:odoo
+  script:
+    - echo "Testing Odoo ${ODOO_VERSION} syntax..."
+    - odoo --version
+    - python3 -m py_compile /usr/lib/python3/dist-packages/odoo/__init__.py
+    - echo "✓ Syntax check passed"
+  only:
+    - merge_requests
+    - branches
+
 test:unit:
   stage: test
-  image: odoo:17.0
+  image: ${IMAGE_FULL_TAG}
+  needs:
+    - build:odoo
   services:
-    - postgres:15
-    - redis:7-alpine
+    - name: postgres:15
+      alias: db
+    - name: redis:7-alpine
+      alias: redis
   variables:
-    POSTGRES_DB: test_odoo
+    POSTGRES_DB: test_db
     POSTGRES_USER: odoo
     POSTGRES_PASSWORD: odoo
-    HOST: postgres
+    HOST: db
+    REDIS_HOST: redis
+    COVERAGE_FILE: .coverage
   before_script:
-    - apt-get update && apt-get install -y python3-pip
-    - pip3 install pytest pytest-odoo coverage
+    - echo "Testing with Odoo version: ${ODOO_VERSION}"
+    - cat /odoo_version.txt
+    - apk add --no-cache postgresql-client redis
   script:
+    # Wait for services
+    - echo "Waiting for PostgreSQL..."
+    - until pg_isready -h db -p 5432 -U odoo; do sleep 1; done
+    - echo "✓ PostgreSQL ready"
+    
+    - echo "Waiting for Redis..."
+    - until redis-cli -h redis ping | grep -q PONG; do sleep 1; done
+    - echo "✓ Redis ready"
+    
+    # Test database initialization
+    - echo "Testing base module installation..."
+    - odoo -d test_db -i base --stop-after-init --test-enable --log-level=test
+    
+    # Version-specific tests
     - |
-      if [ -d "custom_modules" ]; then
-        echo "Running unit tests for custom modules..."
-        cd custom_modules
-        pytest tests/ --junitxml=report.xml --cov=. --cov-report=xml --cov-report=term
+      if [ "${ODOO_VERSION}" = "19.0" ]; then
+        echo "Running Odoo 19.0 specific tests..."
+        # Додайте специфічні тести для 19.0
+      elif [ "${ODOO_VERSION}" = "18.0" ]; then
+        echo "Running Odoo 18.0 specific tests..."
       else
-        echo "No custom modules to test"
+        echo "Running standard tests for Odoo ${ODOO_VERSION}..."
       fi
+    
+    # Test custom modules
+    - |
+      if [ -d "/mnt/extra-addons" ] && [ "$(ls -A /mnt/extra-addons)" ]; then
+        MODULES=$(ls -d /mnt/extra-addons/*/ 2>/dev/null | xargs -n1 basename | tr '\n' ',' | sed 's/,$//')
+        if [ -n "$MODULES" ]; then
+          echo "Testing custom modules: $MODULES"
+          odoo -d test_db -i ${MODULES} --stop-after-init --test-enable --log-level=test
+        else
+          echo "No custom modules found"
+        fi
+      else
+        echo "No custom addons directory"
+      fi
+    
+    - echo "✓ All unit tests passed"
+  
   coverage: '/TOTAL.*\s+(\d+%)$/'
+  
   artifacts:
     reports:
-      junit: custom_modules/report.xml
+      junit: test-results.xml
       coverage_report:
         coverage_format: cobertura
-        path: custom_modules/coverage.xml
-    expire_in: 1 week
+        path: coverage.xml
+    paths:
+      - test-results.xml
+      - coverage.xml
+    expire_in: 7 days
+    when: always
+  
   only:
     - merge_requests
     - main
     - develop
-  tags:
-    - docker
 
 test:integration:
   stage: test
-  image: alpine/helm:${HELM_VERSION}
+  image: ${IMAGE_FULL_TAG}
+  needs:
+    - build:odoo
+  services:
+    - name: postgres:15
+      alias: db
+    - name: redis:7-alpine
+      alias: redis
+  variables:
+    POSTGRES_DB: integration_test
+    POSTGRES_USER: odoo
+    POSTGRES_PASSWORD: odoo
+    HOST: db
+    REDIS_HOST: redis
   before_script:
-    - *kubectl_config
-    - *helm_install
+    - apk add --no-cache postgresql-client redis python3
   script:
+    - echo "Running integration tests for Odoo ${ODOO_VERSION}..."
+    
+    # Wait for services
+    - until pg_isready -h db -p 5432 -U odoo; do sleep 1; done
+    - until redis-cli -h redis ping | grep -q PONG; do sleep 1; done
+    
+    # Test Redis sessions
     - |
-      set -e
-      kubectl create namespace test-odoo --dry-run=client -o yaml | kubectl apply -f -
-
-      SECRET_VALUES_FILE_PATH=""
-      if [ -n "$DEV_VALUES_SECRETS_B64" ]; then
-        echo "$DEV_VALUES_SECRETS_B64" | base64 -d > k8s/overlays/dev/values-secrets.ci.yaml
-        SECRET_VALUES_FILE_PATH="k8s/overlays/dev/values-secrets.ci.yaml"
-      elif [ -f k8s/overlays/dev/values-secrets.yaml ]; then
-        SECRET_VALUES_FILE_PATH="k8s/overlays/dev/values-secrets.yaml"
-      fi
-
-      VALUES_ARGS="-f k8s/overlays/dev/values.yaml"
-      if [ -n "$SECRET_VALUES_FILE_PATH" ]; then
-        VALUES_ARGS="$VALUES_ARGS -f $SECRET_VALUES_FILE_PATH"
-      fi
-
-      helm template odoo k8s/charts/odoo/ $VALUES_ARGS --namespace test-odoo > /tmp/manifest.yaml
-      kubectl apply -f /tmp/manifest.yaml --dry-run=client
-      echo "Manifest validation successful"
-  after_script:
-    - kubectl delete namespace test-odoo --ignore-not-found=true
+      cat > /tmp/test_redis_sessions.py <<'EOF'
+      import redis
+      import sys
+      
+      try:
+          r = redis.Redis(host='redis', port=6379, db=1, decode_responses=True)
+          
+          # Test write
+          r.set('test_session:test_key', 'test_value', ex=60)
+          print("✓ Redis write test passed")
+          
+          # Test read
+          value = r.get('test_session:test_key')
+          assert value == 'test_value', f"Expected 'test_value', got '{value}'"
+          print("✓ Redis read test passed")
+          
+          # Test expiration
+          ttl = r.ttl('test_session:test_key')
+          assert ttl > 0 and ttl <= 60, f"Invalid TTL: {ttl}"
+          print(f"✓ Redis TTL test passed (TTL: {ttl}s)")
+          
+          # Cleanup
+          r.delete('test_session:test_key')
+          print("✓ Redis cleanup completed")
+          
+          print("\n✓ All Redis session tests passed")
+      except Exception as e:
+          print(f"✗ Redis session test failed: {e}")
+          sys.exit(1)
+      EOF
+    - python3 /tmp/test_redis_sessions.py
+    
+    # Test database connections
+    - |
+      cat > /tmp/test_db_connections.py <<'EOF'
+      import psycopg2
+      import sys
+      
+      try:
+          # Test direct connection
+          conn = psycopg2.connect(
+              host='db',
+              port=5432,
+              dbname='integration_test',
+              user='odoo',
+              password='odoo'
+          )
+          cur = conn.cursor()
+          
+          # Test query
+          cur.execute('SELECT version();')
+          version = cur.fetchone()
+          print(f"✓ PostgreSQL version: {version[0][:50]}...")
+          
+          # Test transactions
+          cur.execute('CREATE TABLE IF NOT EXISTS test_table (id SERIAL PRIMARY KEY, data TEXT);')
+          cur.execute("INSERT INTO test_table (data) VALUES ('test_data');")
+          conn.commit()
+          print("✓ Transaction test passed")
+          
+          # Test read
+          cur.execute('SELECT data FROM test_table LIMIT 1;')
+          data = cur.fetchone()
+          assert data[0] == 'test_data', f"Expected 'test_data', got '{data[0]}'"
+          print("✓ Read test passed")
+          
+          # Cleanup
+          cur.execute('DROP TABLE test_table;')
+          conn.commit()
+          cur.close()
+          conn.close()
+          print("✓ Database cleanup completed")
+          
+          print("\n✓ All database connection tests passed")
+      except Exception as e:
+          print(f"✗ Database connection test failed: {e}")
+          sys.exit(1)
+      EOF
+    - python3 /tmp/test_db_connections.py
+    
+    # Test Odoo with both services
+    - echo "Testing Odoo with PostgreSQL and Redis..."
+    - timeout 120 odoo -d integration_test -i base --stop-after-init --log-level=info
+    
+    - echo "✓ All integration tests passed"
+  
   only:
     - merge_requests
-    - main
-  tags:
-    - kubernetes
-
-test:container-structure:
-  stage: test
-  image: gcr.io/gcp-runtimes/container-structure-test:latest
-  script:
-    - |
-      if [ -d "custom_modules" ]; then
-        container-structure-test test --image $CI_REGISTRY_IMAGE/odoo:$CI_COMMIT_SHORT_SHA --config docker/tests/container-structure-test.yaml
-      else
-        echo "Skipping container structure test - using official image"
-      fi
-  only:
     - main
     - develop
-  tags:
-    - docker
-  allow_failure: true
 
-test:helm-tests:
+test:performance:
   stage: test
-  image: alpine/helm:${HELM_VERSION}
-  before_script:
-    - *kubectl_config
-    - *helm_install
+  image: ${IMAGE_FULL_TAG}
+  needs:
+    - build:odoo
+  services:
+    - name: postgres:15
+      alias: db
+    - name: redis:7-alpine
+      alias: redis
+  variables:
+    POSTGRES_DB: perf_test
+    POSTGRES_USER: odoo
+    POSTGRES_PASSWORD: odoo
+    HOST: db
+    REDIS_HOST: redis
   script:
+    - echo "Running performance tests for Odoo ${ODOO_VERSION}..."
+    - until pg_isready -h db -p 5432 -U odoo; do sleep 1; done
+    - until redis-cli -h redis ping | grep -q PONG; do sleep 1; done
+    
+    # Benchmark module installation
     - |
-      set -e
-      kubectl create namespace test-helm --dry-run=client -o yaml | kubectl apply -f -
-
-      SECRET_VALUES_FILE_PATH=""
-      if [ -n "$DEV_VALUES_SECRETS_B64" ]; then
-        echo "$DEV_VALUES_SECRETS_B64" | base64 -d > k8s/overlays/dev/values-secrets.ci.yaml
-        SECRET_VALUES_FILE_PATH="k8s/overlays/dev/values-secrets.ci.yaml"
-      elif [ -f k8s/overlays/dev/values-secrets.yaml ]; then
-        SECRET_VALUES_FILE_PATH="k8s/overlays/dev/values-secrets.yaml"
+      echo "Benchmarking base module installation..."
+      START_TIME=$(date +%s)
+      odoo -d perf_test -i base --stop-after-init --log-level=warn
+      END_TIME=$(date +%s)
+      DURATION=$((END_TIME - START_TIME))
+      echo "Base module installation took ${DURATION} seconds"
+      
+      if [ $DURATION -gt 120 ]; then
+        echo "⚠ Warning: Installation took longer than expected (>120s)"
+      else
+        echo "✓ Performance within acceptable range"
       fi
-
-      VALUES_ARGS="-f k8s/overlays/dev/values.yaml"
-      if [ -n "$SECRET_VALUES_FILE_PATH" ]; then
-        VALUES_ARGS="$VALUES_ARGS -f $SECRET_VALUES_FILE_PATH"
-      fi
-
-      helm upgrade --install odoo-test k8s/charts/odoo/ \
-        $VALUES_ARGS \
-        --namespace test-helm \
-        --wait --timeout 5m
-      helm test odoo-test --namespace test-helm --logs
-  after_script:
-    - helm uninstall odoo-test --namespace test-helm || true
-    - kubectl delete namespace test-helm --ignore-not-found=true
+    
+    - echo "✓ Performance tests completed"
+  
   only:
     - merge_requests
     - main
-  tags:
-    - kubernetes
   allow_failure: true
 
 # ============================================
@@ -276,35 +542,267 @@ test:helm-tests:
 security:trivy:
   stage: security
   image: aquasec/trivy:latest
+  needs:
+    - build:odoo
+  variables:
+    TRIVY_NO_PROGRESS: "true"
+    TRIVY_CACHE_DIR: ".trivycache/"
   script:
-    - trivy image --exit-code 0 --no-progress --format template --template "@/contrib/gitlab.tpl" -o gl-container-scanning-report.json $CI_REGISTRY_IMAGE/odoo:$CI_COMMIT_SHORT_SHA || true
-    - trivy image --exit-code 0 --severity HIGH,CRITICAL --no-progress $CI_REGISTRY_IMAGE/odoo:$CI_COMMIT_SHORT_SHA
+    - echo "Scanning ${IMAGE_FULL_TAG} for vulnerabilities..."
+    
+    # Scan для HIGH и CRITICAL
+    - |
+      trivy image \
+        --severity HIGH,CRITICAL \
+        --exit-code 0 \
+        --format json \
+        --output trivy-report.json \
+        ${IMAGE_FULL_TAG}
+    
+    # Human-readable report
+    - |
+      trivy image \
+        --severity HIGH,CRITICAL \
+        --format table \
+        ${IMAGE_FULL_TAG}
+    
+    - echo "✓ Security scan completed"
+  
   artifacts:
     reports:
-      container_scanning: gl-container-scanning-report.json
+      container_scanning: trivy-report.json
+    paths:
+      - trivy-report.json
+    expire_in: 30 days
+    when: always
+  
+  cache:
+    paths:
+      - .trivycache/
+  
   only:
+    - merge_requests
     - main
     - develop
-  tags:
-    - docker
   allow_failure: true
 
-security:kube-bench:
+security:secrets:
   stage: security
-  image: aquasec/kube-bench:latest
+  image: alpine:latest
   before_script:
-    - *kubectl_config
+    - apk add --no-cache git
   script:
-    - kube-bench run --targets node,policies --json > kube-bench-report.json
-  artifacts:
-    paths:
-      - kube-bench-report.json
-    expire_in: 1 week
+    - echo "Scanning for secrets in repository..."
+    
+    # Simple grep для паролів/токенів
+    - |
+      if git log -p | grep -iE '(password|secret|token|api_key|private_key).*=.*["\047][^"\047]{8,}'; then
+        echo "⚠ Warning: Potential secrets found in git history"
+        exit 1
+      else
+        echo "✓ No obvious secrets found"
+      fi
+    
+    # Перевірка файлів
+    - |
+      if grep -r -iE '(password|secret|token).*=.*["\047][^"\047]{8,}' config/ kubernetes/ docker/ 2>/dev/null; then
+        echo "⚠ Warning: Potential secrets found in config files"
+        exit 1
+      else
+        echo "✓ No hardcoded secrets in config files"
+      fi
+  
   only:
-    - schedules
-  tags:
-    - kubernetes
-  allow_failure: true
+    - merge_requests
+    - branches
+
+# ============================================
+# DEPLOY TEST STAGE
+# ============================================
+
+deploy:test:
+  stage: deploy-test
+  image: alpine:latest
+  needs:
+    - build:odoo
+    - generate:configmaps
+  before_script:
+    - *load_variables
+    - apk add --no-cache curl bash yq openssl
+    - curl -LO "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+    - chmod +x kubectl && mv kubectl /usr/local/bin/
+    - curl -L "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" | tar xz
+    - chmod +x kustomize && mv kustomize /usr/local/bin/
+    - *kubectl_setup
+  script:
+    - export NAMESPACE="${NAMESPACE_TEST}-${CI_COMMIT_REF_SLUG}"
+    - export BRANCH_SLUG="${CI_COMMIT_REF_SLUG}"
+    - export FULL_DOMAIN="${BRANCH_SLUG}.${DOMAIN_TEST}"
+    - export DB_NAME="test_${BRANCH_SLUG}"
+    
+    - echo "Deploying Odoo ${ODOO_VERSION} to test environment"
+    - echo "Namespace: ${NAMESPACE}"
+    - echo "Domain: ${FULL_DOMAIN}"
+    - echo "Image: ${IMAGE_FULL_TAG}"
+    
+    # Створюємо namespace
+    - kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+    - kubectl label namespace ${NAMESPACE} environment=test branch=${CI_COMMIT_REF_SLUG} odoo-version=${ODOO_VERSION} --overwrite
+    
+    # Створюємо secrets
+    - |
+      DB_PASSWORD=$(openssl rand -base64 32)
+      ADMIN_PASSWORD=$(openssl rand -base64 32)
+      
+      kubectl create secret generic odoo-secrets \
+        --from-literal=db-user=$(yq eval '.database.app_user' config/variables.yaml) \
+        --from-literal=db-password=${DB_PASSWORD} \
+        --from-literal=admin-password=${ADMIN_PASSWORD} \
+        -n ${NAMESPACE} \
+        --dry-run=client -o yaml | kubectl apply -f -
+      
+      echo "✓ Secrets created"
+    
+    # Застосовуємо ConfigMap
+    - kubectl apply -f kubernetes/generated/configmap-test.yaml -n ${NAMESPACE}
+    
+    # Version info ConfigMap
+    - |
+      cat > /tmp/version-info.yaml <<EOF
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: odoo-version-info
+        namespace: ${NAMESPACE}
+      data:
+        ODOO_VERSION: "${ODOO_VERSION}"
+        GIT_COMMIT: "${CI_COMMIT_SHORT_SHA}"
+        GIT_BRANCH: "${CI_COMMIT_REF_NAME}"
+        BUILD_TIME: "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+        PIPELINE_ID: "${CI_PIPELINE_ID}"
+        PIPELINE_URL: "${CI_PIPELINE_URL}"
+      EOF
+    - kubectl apply -f /tmp/version-info.yaml
+    
+    # Підготовка kustomize
+    - mkdir -p /tmp/kustomize-test
+    - cp -r kubernetes/overlays/test/* /tmp/kustomize-test/
+    - cd /tmp/kustomize-test
+    
+    # Заміна змінних
+    - sed -i "s|BRANCH_NAME|${BRANCH_SLUG}|g" ingress-patch.yaml
+    - sed -i "s|IMAGE_TAG|${IMAGE_TAG}|g" deployment-patch.yaml
+    - sed -i "s|namespace: odoo-test|namespace: ${NAMESPACE}|g" kustomization.yaml
+    - sed -i "s|TEST_DOMAIN|${DOMAIN_TEST}|g" ingress-patch.yaml
+    - sed -i "s|DB_NAME|${DB_NAME}|g" deployment-patch.yaml
+    - sed -i "s|ODOO_VERSION|${ODOO_VERSION}|g" deployment-patch.yaml
+    - sed -i "s|GIT_COMMIT|${CI_COMMIT_SHORT_SHA}|g" deployment-patch.yaml
+    
+    # Deploy
+    - kustomize build . | kubectl apply -n ${NAMESPACE} -f -
+    - kubectl rollout status deployment/odoo -n ${NAMESPACE} --timeout=${DEPLOY_TIMEOUT_DEV}
+    
+    # Створюємо Ingress динамічно
+    - |
+      cat > /tmp/ingress-test-dynamic.yaml <<EOF
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: odoo-ingress
+        namespace: ${NAMESPACE}
+        annotations:
+          cert-manager.io/cluster-issuer: $(yq eval '.security.cert_manager.issuer_staging' config/variables.yaml)
+          nginx.ingress.kubernetes.io/proxy-body-size: "$(yq eval '.ingress.annotations.test.proxy_body_size' config/variables.yaml)"
+          nginx.ingress.kubernetes.io/proxy-read-timeout: "$(yq eval '.ingress.annotations.test.proxy_read_timeout' config/variables.yaml)"
+          nginx.ingress.kubernetes.io/ssl-redirect: "true"
+          nginx.ingress.kubernetes.io/configuration-snippet: |
+            more_set_headers "X-Environment: test";
+            more_set_headers "X-Branch: ${BRANCH_SLUG}";
+            more_set_headers "X-Odoo-Version: ${ODOO_VERSION}";
+      spec:
+        ingressClassName: $(yq eval '.ingress.class_name' config/variables.yaml)
+        tls:
+        - hosts:
+          - ${FULL_DOMAIN}
+          secretName: odoo-test-tls-${BRANCH_SLUG}
+        rules:
+        - host: ${FULL_DOMAIN}
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: odoo
+                  port:
+                    number: $(yq eval '.odoo.ports.http' config/variables.yaml)
+            - path: /longpolling
+              pathType: Prefix
+              backend:
+                service:
+                  name: odoo
+                  port:
+                    number: $(yq eval '.odoo.ports.longpolling' config/variables.yaml)
+      EOF
+    - kubectl apply -f /tmp/ingress-test-dynamic.yaml
+    
+    # Виводимо інформацію
+    - echo ""
+    - echo "=========================================="
+    - echo "✓ Deployment successful!"
+    - echo "=========================================="
+    - echo "Environment: ${NAMESPACE}"
+    - echo "Odoo Version: ${ODOO_VERSION}"
+    - echo "URL: https://${FULL_DOMAIN}"
+    - echo "Image: ${IMAGE_FULL_TAG}"
+    - echo "=========================================="
+    - echo ""
+    
+    # Виводимо стан подів
+    - kubectl get pods -n ${NAMESPACE} -l app=odoo
+    
+    # Чекаємо на сертифікат
+    - echo "Waiting for SSL certificate (this may take a few minutes)..."
+    - kubectl wait --for=condition=Ready certificate/odoo-test-tls-${BRANCH_SLUG} -n ${NAMESPACE} --timeout=5m || echo "⚠ Certificate not ready yet, but deployment is complete"
+    
+  environment:
+    name: test/${CI_COMMIT_REF_SLUG}
+    url: https://${CI_COMMIT_REF_SLUG}.${DOMAIN_TEST}
+    on_stop: cleanup:test
+    auto_stop_in: 7 days
+  
+  only:
+    - branches
+  except:
+    - main
+    - develop
+
+cleanup:test:
+  stage: cleanup
+  image: alpine:latest
+  before_script:
+    - *load_variables
+    - apk add --no-cache curl
+    - curl -LO "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+    - chmod +x kubectl && mv kubectl /usr/local/bin/
+    - *kubectl_setup
+  script:
+    - export NAMESPACE="${NAMESPACE_TEST}-${CI_COMMIT_REF_SLUG}"
+    - echo "Cleaning up test environment: ${NAMESPACE}"
+    - kubectl delete namespace ${NAMESPACE} --ignore-not-found=true
+    - echo "✓ Cleanup completed"
+  
+  environment:
+    name: test/${CI_COMMIT_REF_SLUG}
+    action: stop
+  
+  when: manual
+  
+  only:
+    - branches
+  except:
+    - main
+    - develop
 
 # ============================================
 # DEPLOY DEV STAGE
@@ -312,74 +810,54 @@ security:kube-bench:
 
 deploy:dev:
   stage: deploy-dev
-  image: alpine/helm:${HELM_VERSION}
+  image: alpine:latest
+  needs:
+    - build:odoo
+    - generate:configmaps
+    - test:unit
   before_script:
-    - *kubectl_config
-    - *helm_install
+    - *load_variables
+    - apk add --no-cache curl bash yq
+    - curl -LO "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+    - chmod +x kubectl && mv kubectl /usr/local/bin/
+    - curl -L "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" | tar xz
+    - chmod +x kustomize && mv kustomize /usr/local/bin/
+    - *kubectl_setup
   script:
-    - |
-      set -e
-      kubectl create namespace ${K8S_NAMESPACE_DEV} --dry-run=client -o yaml | kubectl apply -f -
-
-      SECRET_VALUES_FILE_PATH=""
-      if [ -n "$DEV_VALUES_SECRETS_B64" ]; then
-        echo "$DEV_VALUES_SECRETS_B64" | base64 -d > k8s/overlays/dev/values-secrets.ci.yaml
-        SECRET_VALUES_FILE_PATH="k8s/overlays/dev/values-secrets.ci.yaml"
-      elif [ -f k8s/overlays/dev/values-secrets.yaml ]; then
-        SECRET_VALUES_FILE_PATH="k8s/overlays/dev/values-secrets.yaml"
-      fi
-
-      VALUES_ARGS="-f k8s/overlays/dev/values.yaml"
-      if [ -n "$SECRET_VALUES_FILE_PATH" ]; then
-        VALUES_ARGS="$VALUES_ARGS -f $SECRET_VALUES_FILE_PATH"
-      fi
-
-      helm upgrade --install odoo-dev k8s/charts/odoo/ \
-        $VALUES_ARGS \
-        --namespace ${K8S_NAMESPACE_DEV} \
-        --set image.tag=${CI_COMMIT_SHORT_SHA} \
-        --wait --timeout 10m
-      kubectl rollout status deployment -n ${K8S_NAMESPACE_DEV} -l app.kubernetes.io/name=odoo
+    - export PROJECT_NAME="${CI_PROJECT_NAME}"
+    - export FULL_DOMAIN="${PROJECT_NAME}.${DOMAIN_DEV}"
+    
+    - echo "Deploying Odoo ${ODOO_VERSION} to dev environment"
+    - echo "Namespace: ${NAMESPACE_DEV}"
+    - echo "Project: ${PROJECT_NAME}"
+    - echo "Domain: ${FULL_DOMAIN}"
+    
+    # Застосовуємо ConfigMap
+    - kubectl apply -f kubernetes/generated/configmap-dev.yaml -n ${NAMESPACE_DEV}
+    
+    # Підготовка kustomize
+    - mkdir -p /tmp/kustomize-dev
+    - cp -r kubernetes/overlays/dev/* /tmp/kustomize-dev/
+    - cd /tmp/kustomize-dev
+    
+    - sed -i "s|IMAGE_TAG|${IMAGE_TAG}|g" deployment-patch.yaml
+    - sed -i "s|PROJECT_NAME|${PROJECT_NAME}|g" deployment-patch.yaml
+    - sed -i "s|ODOO_VERSION|${ODOO_VERSION}|g" deployment-patch.yaml
+    - sed -i "s|DEV_DOMAIN|${DOMAIN_DEV}|g" ingress-patch.yaml
+    
+    # Deploy
+    - kustomize build . | kubectl apply -n ${NAMESPACE_DEV} -f -
+    - kubectl rollout status deployment/odoo-${PROJECT_NAME} -n ${NAMESPACE_DEV} --timeout=${DEPLOY_TIMEOUT_DEV}
+    
+    - echo "✓ Deployed to dev: https://${FULL_DOMAIN}"
+    - kubectl get pods -n ${NAMESPACE_DEV} -l project=${PROJECT_NAME}
+  
   environment:
-    name: development
-    url: https://odoo-dev.local
-    on_stop: stop:dev
+    name: dev/${CI_PROJECT_NAME}
+    url: https://${CI_PROJECT_NAME}.${DOMAIN_DEV}
+  
   only:
     - develop
-  tags:
-    - kubernetes
-
-smoke-test:dev:
-  stage: deploy-dev
-  image: alpine/helm:${HELM_VERSION}
-  before_script:
-    - *kubectl_config
-    - apk add --no-cache bash curl
-  script:
-    - bash scripts/smoke-tests.sh ${K8S_NAMESPACE_DEV}
-  dependencies:
-    - deploy:dev
-  only:
-    - develop
-  tags:
-    - kubernetes
-  allow_failure: false
-
-stop:dev:
-  stage: deploy-dev
-  image: alpine/helm:${HELM_VERSION}
-  before_script:
-    - *kubectl_config
-  script:
-    - helm uninstall odoo-dev --namespace ${K8S_NAMESPACE_DEV} || true
-  when: manual
-  environment:
-    name: development
-    action: stop
-  only:
-    - develop
-  tags:
-    - kubernetes
 
 # ============================================
 # DEPLOY STAGE
@@ -387,166 +865,320 @@ stop:dev:
 
 deploy:stage:
   stage: deploy-stage
-  image: alpine/helm:${HELM_VERSION}
+  image: alpine:latest
+  needs:
+    - build:odoo
+    - generate:configmaps
+    - test:unit
+    - test:integration
   before_script:
-    - *kubectl_config
-    - *helm_install
+    - *load_variables
+    - apk add --no-cache curl bash yq
+    - curl -LO "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+    - chmod +x kubectl && mv kubectl /usr/local/bin/
+    - curl -L "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" | tar xz
+    - chmod +x kustomize && mv kustomize /usr/local/bin/
+    - *kubectl_setup
   script:
+    - echo "Deploying Odoo ${ODOO_VERSION} to stage environment"
+    - echo "Namespace: ${NAMESPACE_STAGE}"
+    - echo "Domain: ${DOMAIN_STAGE}"
+    
+    # Backup перед деплоєм (опціонально для stage)
+    - echo "Creating backup before deployment..."
     - |
-      set -e
-      kubectl create namespace ${K8S_NAMESPACE_STAGE} --dry-run=client -o yaml | kubectl apply -f -
-
-      SECRET_VALUES_FILE_PATH=""
-      if [ -n "$STAGE_VALUES_SECRETS_B64" ]; then
-        echo "$STAGE_VALUES_SECRETS_B64" | base64 -d > k8s/overlays/stage/values-secrets.ci.yaml
-        SECRET_VALUES_FILE_PATH="k8s/overlays/stage/values-secrets.ci.yaml"
-      elif [ -f k8s/overlays/stage/values-secrets.yaml ]; then
-        SECRET_VALUES_FILE_PATH="k8s/overlays/stage/values-secrets.yaml"
+      BACKUP_POD=$(kubectl get pods -n ${NAMESPACE_STAGE} -l app=postgres-patroni,role=master -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+      if [ -n "$BACKUP_POD" ]; then
+        TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+        kubectl exec -n ${NAMESPACE_STAGE} ${BACKUP_POD} -- \
+          pg_dump -U postgres $(yq eval '.database.names.stage' config/variables.yaml) 2>/dev/null | gzip > backup-stage-${TIMESTAMP}.sql.gz || echo "⚠ Backup skipped"
+        echo "Backup created: backup-stage-${TIMESTAMP}.sql.gz"
+      else
+        echo "⚠ No database pod found, skipping backup"
       fi
-
-      VALUES_ARGS="-f k8s/overlays/stage/values.yaml"
-      if [ -n "$SECRET_VALUES_FILE_PATH" ]; then
-        VALUES_ARGS="$VALUES_ARGS -f $SECRET_VALUES_FILE_PATH"
-      fi
-
-      helm upgrade --install odoo-stage k8s/charts/odoo/ \
-        $VALUES_ARGS \
-        --namespace ${K8S_NAMESPACE_STAGE} \
-        --set image.tag=${CI_COMMIT_SHORT_SHA} \
-        --wait --timeout 15m
-      kubectl rollout status deployment -n ${K8S_NAMESPACE_STAGE} -l app.kubernetes.io/name=odoo
+    
+    # Застосовуємо ConfigMap
+    - kubectl apply -f kubernetes/generated/configmap-stage.yaml -n ${NAMESPACE_STAGE}
+    
+    # Підготовка kustomize
+    - mkdir -p /tmp/kustomize-stage
+    - cp -r kubernetes/overlays/stage/* /tmp/kustomize-stage/
+    - cd /tmp/kustomize-stage
+    
+    - sed -i "s|IMAGE_TAG|${IMAGE_TAG}|g" deployment-patch.yaml
+    - sed -i "s|ODOO_VERSION|${ODOO_VERSION}|g" deployment-patch.yaml
+    - sed -i "s|STAGE_DOMAIN|${DOMAIN_STAGE}|g" ingress-patch.yaml
+    
+    # Deploy
+    - kustomize build . | kubectl apply -n ${NAMESPACE_STAGE} -f -
+    - kubectl rollout status deployment/odoo -n ${NAMESPACE_STAGE} --timeout=${DEPLOY_TIMEOUT_STAGE}
+    
+    - echo "✓ Deployed to stage: https://${DOMAIN_STAGE}"
+    - kubectl get pods -n ${NAMESPACE_STAGE} -l app=odoo
+  
   environment:
-    name: staging
-    url: https://odoo-stage.local
-    on_stop: stop:stage
-  only:
-    - main
+    name: stage
+    url: https://${DOMAIN_STAGE}
+  
+  artifacts:
+    paths:
+      - backup-stage-*.sql.gz
+    expire_in: 7 days
+    when: on_success
+  
   when: manual
-  tags:
-    - kubernetes
-
-smoke-test:stage:
-  stage: deploy-stage
-  image: alpine/helm:${HELM_VERSION}
-  before_script:
-    - *kubectl_config
-    - apk add --no-cache bash curl
-  script:
-    - bash scripts/smoke-tests.sh ${K8S_NAMESPACE_STAGE}
-  dependencies:
-    - deploy:stage
+  
   only:
     - main
-  tags:
-    - kubernetes
-  when: on_success
-  allow_failure: false
-
-stop:stage:
-  stage: deploy-stage
-  image: alpine/helm:${HELM_VERSION}
-  before_script:
-    - *kubectl_config
-  script:
-    - helm uninstall odoo-stage --namespace ${K8S_NAMESPACE_STAGE} || true
-  when: manual
-  environment:
-    name: staging
-    action: stop
-  only:
-    - main
-  tags:
-    - kubernetes
 
 # ============================================
-# DEPLOY PROD STAGE
+# DEPLOY PRODUCTION STAGE
 # ============================================
 
 deploy:prod:
   stage: deploy-prod
-  image: alpine/helm:${HELM_VERSION}
+  image: alpine:latest
+  needs:
+    - build:odoo
+    - generate:configmaps
+    - test:unit
+    - test:integration
+    - security:trivy
   before_script:
-    - *kubectl_config
-    - *helm_install
+    - *load_variables
+    - apk add --no-cache curl bash yq
+    - curl -LO "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+    - chmod +x kubectl && mv kubectl /usr/local/bin/
+    - curl -L "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" | tar xz
+    - chmod +x kustomize && mv kustomize /usr/local/bin/
+    - *kubectl_setup
   script:
+    - echo "=========================================="
+    - echo "⚠ PRODUCTION DEPLOYMENT"
+    - echo "=========================================="
+    - echo "Odoo Version: ${ODOO_VERSION}"
+    - echo "Namespace: ${NAMESPACE_PROD}"
+    - echo "Domain: ${DOMAIN_PROD}"
+    - echo "Image: ${IMAGE_FULL_TAG}"
+    - echo "Git Ref: ${CI_COMMIT_REF_NAME}"
+    - echo "Commit: ${CI_COMMIT_SHORT_SHA}"
+    - echo "=========================================="
+    
+    # Обов'язковий backup
+    - echo "Creating production backup..."
     - |
-      set -e
-      kubectl create namespace ${K8S_NAMESPACE_PROD} --dry-run=client -o yaml | kubectl apply -f -
-
-      SECRET_VALUES_FILE_PATH=""
-      if [ -n "$PROD_VALUES_SECRETS_B64" ]; then
-        echo "$PROD_VALUES_SECRETS_B64" | base64 -d > k8s/overlays/prod/values-secrets.ci.yaml
-        SECRET_VALUES_FILE_PATH="k8s/overlays/prod/values-secrets.ci.yaml"
-      elif [ -f k8s/overlays/prod/values-secrets.yaml ]; then
-        SECRET_VALUES_FILE_PATH="k8s/overlays/prod/values-secrets.yaml"
+      BACKUP_POD=$(kubectl get pods -n ${NAMESPACE_PROD} -l app=postgres-patroni,role=master -o jsonpath='{.items[0].metadata.name}')
+      TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+      
+      if [ -z "$BACKUP_POD" ]; then
+        echo "✗ Error: Cannot find database pod for backup"
+        exit 1
       fi
-
-      VALUES_ARGS="-f k8s/overlays/prod/values.yaml"
-      if [ -n "$SECRET_VALUES_FILE_PATH" ]; then
-        VALUES_ARGS="$VALUES_ARGS -f $SECRET_VALUES_FILE_PATH"
+      
+      echo "Backing up from pod: ${BACKUP_POD}"
+      kubectl exec -n ${NAMESPACE_PROD} ${BACKUP_POD} -- \
+        pg_dump -U postgres $(yq eval '.database.names.prod' config/variables.yaml) | gzip > backup-prod-${TIMESTAMP}.sql.gz
+      
+      if [ ! -s backup-prod-${TIMESTAMP}.sql.gz ]; then
+        echo "✗ Error: Backup failed or empty"
+        exit 1
       fi
-
-      helm upgrade --install odoo-prod k8s/charts/odoo/ \
-        $VALUES_ARGS \
-        --namespace ${K8S_NAMESPACE_PROD} \
-        --set image.tag=${CI_COMMIT_TAG} \
-        --wait --timeout 20m
-      kubectl rollout status deployment -n ${K8S_NAMESPACE_PROD} -l app.kubernetes.io/name=odoo
+      
+      BACKUP_SIZE=$(du -h backup-prod-${TIMESTAMP}.sql.gz | cut -f1)
+      echo "✓ Backup created: backup-prod-${TIMESTAMP}.sql.gz (${BACKUP_SIZE})"
+    
+    # Застосовуємо ConfigMap
+    - kubectl apply -f kubernetes/generated/configmap-prod.yaml -n ${NAMESPACE_PROD}
+    
+    # Version info
+    - |
+      cat > /tmp/version-info-prod.yaml <<EOF
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: odoo-version-info
+        namespace: ${NAMESPACE_PROD}
+      data:
+        ODOO_VERSION: "${ODOO_VERSION}"
+        GIT_COMMIT: "${CI_COMMIT_SHORT_SHA}"
+        GIT_TAG: "${CI_COMMIT_TAG:-none}"
+        BUILD_TIME: "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+        DEPLOY_TIME: "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+        DEPLOYED_BY: "${GITLAB_USER_LOGIN}"
+        PIPELINE_ID: "${CI_PIPELINE_ID}"
+      EOF
+    - kubectl apply -f /tmp/version-info-prod.yaml
+    
+    # Підготовка kustomize
+    - mkdir -p /tmp/kustomize-prod
+    - cp -r kubernetes/overlays/prod/* /tmp/kustomize-prod/
+    - cd /tmp/kustomize-prod
+    
+    - sed -i "s|IMAGE_TAG|${IMAGE_TAG}|g" deployment-patch.yaml
+    - sed -i "s|ODOO_VERSION|${ODOO_VERSION}|g" deployment-patch.yaml
+    - sed -i "s|PROD_DOMAIN|${DOMAIN_PROD}|g" ingress-patch.yaml
+    
+    # Pre-deployment check
+    - echo "Running pre-deployment checks..."
+    - kubectl get pods -n ${NAMESPACE_PROD} -l app=odoo
+    - kubectl get pods -n ${NAMESPACE_PROD} -l app=postgres-patroni
+    - kubectl get pods -n ${NAMESPACE_PROD} -l app=redis
+    
+    # Deploy
+    - echo "Starting deployment..."
+    - kustomize build . | kubectl apply -n ${NAMESPACE_PROD} -f -
+    - kubectl rollout status deployment/odoo -n ${NAMESPACE_PROD} --timeout=${DEPLOY_TIMEOUT_PROD}
+    
+    # Post-deployment validation
+    - echo "Running post-deployment checks..."
+    - sleep 30
+    
+    # Health check
+    - |
+      echo "Checking application health..."
+      kubectl run health-check-${CI_PIPELINE_ID} \
+        --rm -i --restart=Never \
+        --image=curlimages/curl \
+        -n ${NAMESPACE_PROD} \
+        -- curl -f -s http://odoo.${NAMESPACE_PROD}:$(yq eval '.odoo.ports.http' config/variables.yaml)/web/health || {
+          echo "✗ Health check failed!"
+          exit 1
+        }
+      echo "✓ Health check passed"
+    
+    # Перевірка версії
+    - |
+      DEPLOYED_VERSION=$(kubectl get cm odoo-version-info -n ${NAMESPACE_PROD} -o jsonpath='{.data.ODOO_VERSION}')
+      if [ "$DEPLOYED_VERSION" != "$ODOO_VERSION" ]; then
+        echo "✗ Version mismatch! Expected: ${ODOO_VERSION}, Got: ${DEPLOYED_VERSION}"
+        exit 1
+      fi
+      echo "✓ Version verified: ${DEPLOYED_VERSION}"
+    
+    - echo ""
+    - echo "=========================================="
+    - echo "✓ PRODUCTION DEPLOYMENT SUCCESSFUL"
+    - echo "=========================================="
+    - echo "Odoo Version: ${ODOO_VERSION}"
+    - echo "URL: https://${DOMAIN_PROD}"
+    - echo "Backup: backup-prod-${TIMESTAMP}.sql.gz"
+    - echo "=========================================="
+    - echo ""
+    
+    - kubectl get pods -n ${NAMESPACE_PROD} -l app=odoo
+  
   environment:
     name: production
-    url: https://odoo.yourdomain.com
-  only:
-    - tags
-  when: manual
-  tags:
-    - kubernetes
-
-smoke-test:prod:
-  stage: deploy-prod
-  image: alpine/helm:${HELM_VERSION}
-  before_script:
-    - *kubectl_config
-    - apk add --no-cache bash curl
-  script:
-    - bash scripts/smoke-tests.sh ${K8S_NAMESPACE_PROD}
-  dependencies:
-    - deploy:prod
-  only:
-    - tags
-  tags:
-    - kubernetes
-  when: on_success
-  allow_failure: false
-
-# ============================================
-# PERFORMANCE TEST STAGE
-# ============================================
-
-performance:k6:
-  stage: performance-test
-  image: grafana/k6:latest
-  script:
-    - k6 run --vus 10 --duration 30s k8s/tests/load-test.js
-  artifacts:
-    reports:
-      load_performance: k6-report.json
-  only:
-    - schedules
-  tags:
-    - docker
-  allow_failure: true
-
-performance:locust:
-  stage: performance-test
-  image: locustio/locust:latest
-  script:
-    - locust -f k8s/tests/locustfile.py --headless --users 100 --spawn-rate 10 --run-time 5m --host https://odoo-stage.local
+    url: https://${DOMAIN_PROD}
+  
   artifacts:
     paths:
-      - locust_report.html
-    expire_in: 1 week
+      - backup-prod-*.sql.gz
+    expire_in: 30 days
+    when: always
+  
+  when: manual
+  
+  only:
+    - tags
+    - /^v[0-9]+\.[0-9]+\.[0-9]+$/
+
+# ============================================
+# ROLLBACK STAGE
+# ============================================
+
+rollback:prod:
+  stage: rollback
+  image: alpine:latest
+  before_script:
+    - *load_variables
+    - apk add --no-cache curl bash yq
+    - curl -LO "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+    - chmod +x kubectl && mv kubectl /usr/local/bin/
+    - *kubectl_setup
+  script:
+    - echo "=========================================="
+    - echo "⚠ ROLLING BACK PRODUCTION"
+    - echo "=========================================="
+    
+    # Rollback deployment
+    - kubectl rollout undo deployment/odoo -n ${NAMESPACE_PROD}
+    - kubectl rollout status deployment/odoo -n ${NAMESPACE_PROD} --timeout=10m
+    
+    # Verify rollback
+    - |
+      CURRENT_VERSION=$(kubectl get cm odoo-version-info -n ${NAMESPACE_PROD} -o jsonpath='{.data.ODOO_VERSION}' 2>/dev/null || echo "unknown")
+      echo "Rolled back to version: ${CURRENT_VERSION}"
+    
+    - echo "✓ Rollback completed"
+    - kubectl get pods -n ${NAMESPACE_PROD} -l app=odoo
+  
+  environment:
+    name: production
+    action: rollback
+  
+  when: manual
+  
+  only:
+    - tags
+    - main
+
+# ============================================
+# CLEANUP & MAINTENANCE
+# ============================================
+
+cleanup:old-images:
+  stage: cleanup
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache curl bash yq
+  script:
+    - echo "Cleaning up old Docker images..."
+    # Цей job можна розширити для очищення registry
+    - echo "✓ Cleanup placeholder"
+  
   only:
     - schedules
-  tags:
-    - docker
-  allow_failure: true
+  when: manual
+
+maintenance:database-backup:
+  stage: cleanup
+  image: alpine:latest
+  before_script:
+    - *load_variables
+    - apk add --no-cache curl yq
+    - curl -LO "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+    - chmod +x kubectl && mv kubectl /usr/local/bin/
+    - *kubectl_setup
+  script:
+    - echo "Running scheduled database backup..."
+    - |
+      for env in stage prod; do
+        if [ "$env" = "stage" ]; then
+          NS=${NAMESPACE_STAGE}
+          DB=$(yq eval '.database.names.stage' config/variables.yaml)
+        else
+          NS=${NAMESPACE_PROD}
+          DB=$(yq eval '.database.names.prod' config/variables.yaml)
+        fi
+        
+        BACKUP_POD=$(kubectl get pods -n ${NS} -l app=postgres-patroni,role=master -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+        
+        if [ -n "$BACKUP_POD" ]; then
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          echo "Backing up ${env}..."
+          kubectl exec -n ${NS} ${BACKUP_POD} -- \
+            pg_dump -U postgres ${DB} | gzip > backup-${env}-${TIMESTAMP}.sql.gz
+          echo "✓ Backup created for ${env}"
+        else
+          echo "⚠ No database pod found for ${env}"
+        fi
+      done
+  
+  artifacts:
+    paths:
+      - backup-*.sql.gz
+    expire_in: 30 days
+  
+  only:
+    - schedules

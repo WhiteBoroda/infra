@@ -1,0 +1,47 @@
+# kubernetes/overlays/test/ingress-patch.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: odoo-ingress
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # Додаткові заголовки для test середовища
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Environment: test";
+      more_set_headers "X-Branch: BRANCH_NAME";
+spec:
+  tls:
+  - hosts:
+    - "BRANCH_NAME.TEST_DOMAIN"
+    - "*.TEST_DOMAIN"
+    secretName: odoo-test-tls-BRANCH_NAME
+  rules:
+  - host: BRANCH_NAME.TEST_DOMAIN
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: odoo
+            port:
+              number: 8069
+      - path: /longpolling
+        pathType: Prefix
+        backend:
+          service:
+            name: odoo
+            port:
+              number: 8072
+      - path: /web/database
+        pathType: Prefix
+        backend:
+          service:
+            name: odoo
+            port:
+              number: 8069

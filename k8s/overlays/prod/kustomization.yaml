@@ -1,0 +1,38 @@
+# kubernetes/overlays/prod/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: odoo-prod
+
+resources:
+- ../../base
+- ../../base/postgres-external-service.yaml  # External PostgreSQL service
+- redis-statefulset.yaml  # StatefulSet замість Deployment
+
+patchesStrategicMerge:
+- deployment-patch.yaml
+- ingress-patch.yaml
+- postgres-host-patch.yaml  # Patch для використання зовнішнього PostgreSQL
+
+configMapGenerator:
+- name: odoo-config
+  behavior: merge
+  literals:
+  - workers=6
+  - max_cron_threads=2
+  - session_redis=True
+  - session_redis_expiration=604800  # 7 днів для prod
+  - db_host=postgres-prod  # External PostgreSQL VM
+  - db_port=5432
+  - db_maxconn=64
+  - log_level=warning
+
+replicas:
+- name: odoo
+  count: 4
+- name: redis
+  count: 3
+
+commonLabels:
+  environment: production
+  managed-by: gitlab-ci

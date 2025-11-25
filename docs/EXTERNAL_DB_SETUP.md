@@ -18,14 +18,14 @@
     data:
       odoo.conf: |
         [options]
-        db_host = 192.168.0.25  # внешний PostgreSQL
+        db_host = 10.12.14.19  # PostgreSQL Production VM
         db_port = 5432
         db_user = odoo
         db_password = odoo123
         list_db = True
         proxy_mode = True
         session_store = redis
-        redis_host = 192.168.0.24  # внешний Redis
+        redis_host = redis-service  # Redis в Kubernetes
         redis_port = 6379
     EOF
 ```
@@ -43,10 +43,10 @@ postgresql:
 redis:
   enabled: false
 
-# Настраиваем Odoo для использования внешних БД
+# Настраиваем Odoo для использования внешней БД
 odoo:
   database:
-    host: 192.168.0.25
+    host: 10.12.14.19  # PostgreSQL Production VM
     port: 5432
     user: odoo
     password: "secure_password"
@@ -54,7 +54,7 @@ odoo:
   
   cache:
     redis:
-      host: 192.168.0.24
+      host: redis-service  # Redis в Kubernetes
       port: 6379
       password: ""  # если нужен пароль
 ```
@@ -114,7 +114,7 @@ helm upgrade --install odoo-prod k8s/charts/odoo/ \
 В `pg_hba.conf`:
 ```
 # Разрешить доступ из Kubernetes кластера
-host    odoo    odoo    192.168.0.0/24    md5
+host    odoo    odoo    10.12.14.0/24    md5
 ```
 
 В `postgresql.conf`:
@@ -206,14 +206,14 @@ redis:
 
 odoo:
   database:
-    host: 192.168.0.25  # внешний PostgreSQL
+    host: 10.12.14.19  # PostgreSQL Production VM
     port: 5432
     user: odoo
     password: "{{ vault_postgres_password }}"
   
   cache:
     redis:
-      host: 192.168.0.24  # внешний Redis
+      host: redis-service  # Redis в Kubernetes
       port: 6379
 ```
 
@@ -229,7 +229,7 @@ kubectl exec -n odoo postgres-postgresql-0 -- \
   pg_dump -U odoo odoo > odoo_backup.sql
 
 # 2. Импорт во внешний PostgreSQL
-psql -h 192.168.0.25 -U odoo -d odoo < odoo_backup.sql
+psql -h 10.12.14.19 -U odoo -d odoo < odoo_backup.sql
 ```
 
 ---
@@ -243,11 +243,7 @@ psql -h 192.168.0.25 -U odoo -d odoo < odoo_backup.sql
 additionalScrapeConfigs:
   - job_name: 'postgres-external'
     static_configs:
-      - targets: ['192.168.0.25:9187']  # postgres_exporter
-    
-  - job_name: 'redis-external'
-    static_configs:
-      - targets: ['192.168.0.24:9121']  # redis_exporter
+      - targets: ['10.12.14.19:9187']  # postgres_exporter на PostgreSQL Production VM
 ```
 
 ---
@@ -258,19 +254,12 @@ additionalScrapeConfigs:
 
 1. **Development/Staging**: Оставить текущую конфигурацию (все в Kubernetes)
 2. **Production**: 
-   - PostgreSQL → на VM (192.168.0.25)
-   - Redis → можно оставить в Kubernetes (для кеша это нормально)
-   - Мониторинг → только в Kubernetes, удалить Docker с VM
+   - PostgreSQL → на VM (10.12.14.19) ✅ УЖЕ НАСТРОЕНО
+   - Redis → в Kubernetes (для кеша это нормально) ✅ УЖЕ НАСТРОЕНО
+   - Мониторинг → в Kubernetes ✅ ТЕКУЩАЯ КОНФИГУРАЦИЯ
 
-3. **VM monitoring (192.168.0.23)**: 
-   - Удалить Docker контейнеры
-   - Использовать для других целей или удалить
-
-4. **VM redis (192.168.0.24)**: 
-   - Использовать только если нужна persistence для production
-   - Иначе можно не использовать
-
-5. **VM postgres (192.168.0.25)**: 
-   - Использовать для production
-   - Настроить backup и мониторинг
+3. **PostgreSQL Production VM (10.12.14.19)**: 
+   - Используется для production ✅
+   - Настроены backup и мониторинг ✅
+   - 500GB диск, 16GB RAM, 8 CPU ✅
 

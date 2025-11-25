@@ -1,0 +1,25 @@
+# kubernetes/overlays/dev/deployment-patch.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: odoo
+spec:
+  replicas: 2
+  template:
+    spec:
+      containers:
+      - name: odoo
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        env:
+        - name: ODOO_BASE_URL
+          value: "https://dev.hd.local"
+        - name: DB_NAME
+          value: "odoo_dev"
+        - name: HOST
+          value: "postgres"  # In-cluster PostgreSQL for dev

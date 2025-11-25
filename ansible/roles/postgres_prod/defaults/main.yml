@@ -1,0 +1,13 @@
+---
+# ansible/roles/postgres_prod/defaults/main.yml
+
+# PostgreSQL user and password for Odoo
+postgres_odoo_user: "odoo"
+postgres_odoo_password: "{{ vault_postgres_odoo_password | default('changeme') }}"
+
+# PostgreSQL version
+postgres_version: "15"
+
+# Backup settings
+pgbackrest_retention_full: 30
+pgbackrest_retention_diff: 7

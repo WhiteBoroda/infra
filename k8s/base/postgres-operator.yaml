@@ -1,0 +1,11 @@
+# kubernetes/base/postgres-operator.yaml
+# Спочатку встановлюємо оператор
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: postgres-operator
+---
+# Встановлення через Helm:
+# helm repo add postgres-operator-charts https://opensource.zalando.com/postgres-operator/charts/postgres-operator
+# helm install postgres-operator postgres-operator-charts/postgres-operator -n postgres-operator

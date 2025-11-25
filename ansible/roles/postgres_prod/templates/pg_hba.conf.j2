@@ -1,0 +1,19 @@
+# ansible/roles/postgres_prod/templates/pg_hba.conf.j2
+# PostgreSQL Client Authentication Configuration File
+
+# TYPE  DATABASE        USER            ADDRESS                 METHOD
+
+# "local" is for Unix domain socket connections only
+local   all             all                                     peer
+
+# IPv4 local connections:
+host    all             all             127.0.0.1/32            scram-sha-256
+
+# Allow connections from k3s cluster
+host    all             {{ postgres_odoo_user }}    10.12.14.0/24           scram-sha-256
+
+# Allow replication connections
+host    replication     all             10.12.14.0/24           scram-sha-256
+
+# Deny all other connections
+host    all             all             0.0.0.0/0               reject

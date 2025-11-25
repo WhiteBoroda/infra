@@ -29,6 +29,26 @@ header() {
     echo -e "${BLUE}============================================${NC}\n"
 }
 
+# Get ansible user from inventory
+get_ansible_user() {
+    local inventory_file="${1:-ansible/inventory.ini}"
+    if [[ -f "$inventory_file" ]]; then
+        grep "ansible_user" "$inventory_file" | head -1 | cut -d'=' -f2
+    else
+        echo "$USER"  # fallback to current user
+    fi
+}
+
+# Get k3s master IP
+get_k3s_master_ip() {
+    local inventory_file="${1:-ansible/inventory.ini}"
+    if [[ -f "$inventory_file" ]]; then
+        grep -A1 "\[k3s_master\]" "$inventory_file" | tail -1
+    else
+        echo "10.12.14.15"  # fallback to default
+    fi
+}
+
 # Check prerequisites
 check_prerequisites() {
     header "Checking prerequisites"
@@ -105,17 +125,21 @@ setup_ansible() {
 setup_kubectl() {
     header "Setting up kubectl"
 
+    local ANSIBLE_USER=$(get_ansible_user)
+    local K3S_MASTER_IP=$(get_k3s_master_ip)
+
     if [[ -f /tmp/k3s.yaml ]]; then
         log "Copying kubeconfig..."
         mkdir -p ~/.kube
         cp /tmp/k3s.yaml ~/.kube/config
-        sed -i 's/127.0.0.1/192.168.0.20/g' ~/.kube/config
+        sed -i "s/127.0.0.1/${K3S_MASTER_IP}/g" ~/.kube/config
         chmod 600 ~/.kube/config
     else
         warn "Kubeconfig not found in /tmp/k3s.yaml"
-        log "Copying from k3s master..."
-        scp ubuntu@192.168.0.20:/home/ubuntu/.kube/config ~/.kube/config
-        sed -i 's/127.0.0.1/192.168.0.20/g' ~/.kube/config
+        log "Copying from k3s master (${ANSIBLE_USER}@${K3S_MASTER_IP})..."
+        scp "${ANSIBLE_USER}@${K3S_MASTER_IP}:/home/${ANSIBLE_USER}/.kube/config" ~/.kube/config
+        sed -i "s/127.0.0.1/${K3S_MASTER_IP}/g" ~/.kube/config
+        chmod 600 ~/.kube/config
     fi
 
     log "Testing kubectl..."

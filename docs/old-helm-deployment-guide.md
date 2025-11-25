@@ -338,18 +338,6 @@ sudo gitlab-runner register \
 
 #### 7.1. Проверка Odoo
 ```bash
-# Dev
-kubectl get pods -n odoo-dev
-kubectl logs -n odoo-dev -l app.kubernetes.io/name=odoo --tail=50
-
-# Проверка БД подключения
-kubectl exec -it -n odoo-dev deployment/odoo-dev-web -- psql \
-  -h postgres-postgresql -U odoo -d odoo -c "SELECT version();"
-```
-
-#### 7.2. Проверка мониторинга
-```bash
-# Prometheus
 kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090
 # http://localhost:9090
 

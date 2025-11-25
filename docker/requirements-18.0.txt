@@ -1,0 +1,5 @@
+# docker/requirements-18.0.txt
+# Специфічні залежності для Odoo 18.0
+num2words==0.5.13
+ofxparse==0.21
+xlrd==2.0.1

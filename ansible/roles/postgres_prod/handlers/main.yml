@@ -1,0 +1,13 @@
+---
+# ansible/roles/postgres_prod/handlers/main.yml
+
+- name: restart postgresql
+  systemd:
+    name: postgresql
+    state: restarted
+
+- name: restart postgres_exporter
+  systemd:
+    name: postgres_exporter
+    state: restarted
+    daemon_reload: yes

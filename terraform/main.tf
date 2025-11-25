@@ -58,7 +58,7 @@ resource "proxmox_vm_qemu" "k3s_master" {
   }
  
   ciupgrade  = true
-  ipconfig0  = "ip=192.168.0.20/24,gw=192.168.0.1"
+  ipconfig0  = "ip=10.12.14.15/24,gw=10.12.14.254"
   skip_ipv6  = true
   ciuser     = var.ci_username
   cipassword = var.ci_password
@@ -112,7 +112,7 @@ resource "proxmox_vm_qemu" "k3s_node1" {
   cipassword = var.ci_password
   nameserver = var.ci_nameserver
   sshkeys    = file(var.ssh_pubkey_path)
-  ipconfig0  = "ip=192.168.0.21/24,gw=192.168.0.1"
+  ipconfig0  = "ip=10.12.14.16/24,gw=10.12.14.254"
   bootdisk   = "scsi0"
   boot       = "cdn"
   agent      = 1
@@ -164,13 +164,14 @@ resource "proxmox_vm_qemu" "gitlab" {
   cipassword = var.ci_password
   nameserver = var.ci_nameserver
   sshkeys    = file(var.ssh_pubkey_path)
-  ipconfig0  = "ip=192.168.0.22/24,gw=192.168.0.1"
+  ipconfig0  = "ip=10.12.14.17/24,gw=10.12.14.254"
   bootdisk   = "scsi0"
   boot       = "cdn"
   agent      = 1
 }
-resource "proxmox_vm_qemu" "monitoring" {
-  name         = "monitoring"
+
+resource "proxmox_vm_qemu" "gitlab_runner" {
+  name         = "gitlab-runner"
   target_node  = var.target_node
   clone        = var.template_name
   full_clone   = true
@@ -205,35 +206,38 @@ resource "proxmox_vm_qemu" "monitoring" {
             storage = var.storage
         }
       }
+    }
   }
-  }
+
   network {
     id     = 0
     model  = "virtio"
     bridge = "vmbr0"
   }
+  
   ciuser     = var.ci_username
   cipassword = var.ci_password
   nameserver = var.ci_nameserver
   sshkeys    = file(var.ssh_pubkey_path)
-  ipconfig0  = "ip=192.168.0.23/24,gw=192.168.0.1"
+  ipconfig0  = "ip=10.12.14.18/24,gw=10.12.14.254"
   bootdisk   = "scsi0"
   boot       = "cdn"
   agent      = 1
 }
-resource "proxmox_vm_qemu" "redis" {
-  name         = "redis"
+
+resource "proxmox_vm_qemu" "postgres_prod" {
+  name         = "postgres-prod"
   target_node  = var.target_node
   clone        = var.template_name
   full_clone   = true
 
   cpu {
-    cores   = 2
+    cores   = 8
     sockets = 1
     type    = "host"
   }
 
-  memory  = 2048
+  memory  = 16384
   scsihw  = "virtio-scsi-single"
   os_type = "cloud-init"
 
@@ -246,7 +250,7 @@ resource "proxmox_vm_qemu" "redis" {
           discard    = true
           emulatessd = true
           iothread   = true
-          size       = 8
+          size       = 500  # 500GB for production database (currently 200GB + growth)
           storage    = var.storage
         }
       }
@@ -257,72 +261,20 @@ resource "proxmox_vm_qemu" "redis" {
             storage = var.storage
         }
       }
-   }
-  }
-  network {
-    id     = 0
-    model  = "virtio"
-    bridge = "vmbr0"
-  }
-
-  ciuser     = var.ci_username
-  cipassword = var.ci_password
-  nameserver = var.ci_nameserver
-  sshkeys    = file(var.ssh_pubkey_path)
-  ipconfig0  = "ip=192.168.0.24/24,gw=192.168.0.1"
-  bootdisk   = "scsi0"
-  boot       = "cdn" 
-  agent      = 1
-}
-resource "proxmox_vm_qemu" "postgres" {
-  name         = "postgres"
-  target_node  = var.target_node
-  clone        = var.template_name
-  full_clone   = true
-
-  cpu {
-    cores   = 4
-    sockets = 1
-    type    = "host"
-  }
-
-  memory  = 8192
-  scsihw  = "virtio-scsi-single"
-  os_type = "cloud-init"
-
-  disks {
-    scsi {
-      scsi0 {
-        disk {
-          backup     = true
-          cache      = "none"
-          discard    = true
-          emulatessd = true
-          iothread   = true
-          size       = 32
-          storage    = var.storage
-        }
-      }
     }
-    ide {
-      ide1 {
-        cloudinit {
-            storage = var.storage
-        }
-      }
-   }
   }
+
   network {
     id     = 0
     model  = "virtio"
     bridge = "vmbr0"
   }
-
+  
   ciuser     = var.ci_username
   cipassword = var.ci_password
   nameserver = var.ci_nameserver
   sshkeys    = file(var.ssh_pubkey_path)
-  ipconfig0  = "ip=192.168.0.25/24,gw=192.168.0.1"
+  ipconfig0  = "ip=10.12.14.19/24,gw=10.12.14.254"
   bootdisk   = "scsi0"
   boot       = "cdn"
   agent      = 1
